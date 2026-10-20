@@ -120,10 +120,14 @@ impl Config {
         data_dir().join("config.txt")
     }
 
+    /// Sin archivo (o sin idioma guardado) usa el idioma de Windows.
     pub fn load() -> Config {
-        std::fs::read_to_string(Self::path())
-            .map(|text| Self::parse(&text))
-            .unwrap_or_default()
+        let text = std::fs::read_to_string(Self::path()).unwrap_or_default();
+        let mut config = Self::parse(&text);
+        if !text.lines().any(|l| l.trim_start().starts_with("lang=")) {
+            config.lang = crate::i18n::system_lang();
+        }
+        config
     }
 
     pub fn save(&self) -> std::io::Result<()> {

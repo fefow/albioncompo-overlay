@@ -130,10 +130,16 @@ impl Client {
         let (Some(base), Some(key)) = (&self.base, &self.key) else {
             return Err(ApiError::NotConfigured);
         };
-        self.agent
+        let mut request = self
+            .agent
             .post(format!("{base}/rest/v1/rpc/{name}"))
-            .header("apikey", key)
-            .header("Authorization", format!("Bearer {key}"))
+            .header("apikey", key);
+        // La anon key vieja es un JWT y también va como Bearer; la nueva
+        // "publishable" (sb_publishable_...) va solo en `apikey`.
+        if key.starts_with("eyJ") {
+            request = request.header("Authorization", format!("Bearer {key}"));
+        }
+        request
             .send_json(body)
             .and_then(|r| r.into_body().read_json::<T>())
             .map_err(|e| ApiError::Network(e.to_string()))

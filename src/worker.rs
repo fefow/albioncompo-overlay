@@ -15,6 +15,10 @@ pub enum Command {
         code: String,
         rev: Option<String>,
     },
+    /// Primer paso del ingreso: ver si el código existe antes de pedir el nombre.
+    Check {
+        code: String,
+    },
     Join {
         code: String,
         name: String,
@@ -29,7 +33,9 @@ pub enum Command {
 
 pub enum Event {
     Overlay(Result<Overlay, ApiError>),
-    /// `Ok` con la asignación ya leída, o el mensaje para mostrar.
+    /// `Ok` con la asignación ya leída, o el `status` del error ("invalid",
+    /// "network"...) para traducirlo en la UI.
+    Checked(String, Result<Overlay, String>),
     Joined(Result<Overlay, String>),
     /// id original -> (id con tier, nombre).
     Names(Lang, Vec<(String, String, String)>),
@@ -72,6 +78,9 @@ fn run(rx: Receiver<Command>) {
             Command::Poll { code, rev } => {
                 send(Event::Overlay(client.get_overlay(&code, rev.as_deref())));
             }
+            Command::Check { code } => {
+                send(Event::Checked(code.clone(), check(&client, &code)));
+            }
             Command::Join { code, name, role } => {
                 send(Event::Joined(join(&client, &code, &name, &role)));
             }
@@ -102,34 +111,26 @@ fn run(rx: Receiver<Command>) {
     }
 }
 
-fn status_message(status: &str) -> String {
-    match status {
-        "invalid" => "Ese código no existe. Revisalo con quien lidera la party.".into(),
-        "expired" => "Esa asignación ya venció. Pedile a quien lidera que cree una nueva.".into(),
-        "rate_limited" => "Demasiados intentos. Probá de nuevo en unos minutos.".into(),
-        "name_taken" => "Ese nombre ya está anotado en la asignación.".into(),
-        "full" => "La asignación está llena.".into(),
-        "bad_name" => "El nombre tiene que tener entre 2 y 32 caracteres.".into(),
-        other => format!("Respuesta inesperada del servidor ({other})."),
+fn api_status(error: ApiError) -> String {
+    match error {
+        ApiError::NotConfigured => "not_configured".into(),
+        ApiError::Network(_) => "network".into(),
     }
 }
 
-fn api_message(error: ApiError) -> String {
-    match error {
-        ApiError::NotConfigured => {
-            "Esta versión del overlay no tiene configurado el servidor de AlbionCompo.".into()
-        }
-        ApiError::Network(_) => "No hay conexión con AlbionCompo. Probá de nuevo.".into(),
+fn check(client: &Client, code: &str) -> Result<Overlay, String> {
+    let overlay = client.get_overlay(code, None).map_err(api_status)?;
+    if overlay.status == "ok" {
+        Ok(overlay)
+    } else {
+        Err(overlay.status)
     }
 }
 
 /// Entra a la asignación: si el nombre ya está anotado (por ejemplo, desde la
 /// web o una sesión anterior) solo lo recuerda; si no, lo anota.
 fn join(client: &Client, code: &str, name: &str, role: &str) -> Result<Overlay, String> {
-    let overlay = client.get_overlay(code, None).map_err(api_message)?;
-    if overlay.status != "ok" {
-        return Err(status_message(&overlay.status));
-    }
+    let overlay = check(client, code)?;
     let me = normalize_name(name);
     if overlay
         .entries
@@ -138,18 +139,9 @@ fn join(client: &Client, code: &str, name: &str, role: &str) -> Result<Overlay, 
     {
         return Ok(overlay);
     }
-    let joined: api::Join = client.join_overlay(code, name, role).map_err(api_message)?;
+    let joined: api::Join = client.join_overlay(code, name, role).map_err(api_status)?;
     if joined.status != "ok" {
-        return Err(status_message(&joined.status));
+        return Err(joined.status);
     }
-    client
-        .get_overlay(code, None)
-        .map_err(api_message)
-        .and_then(|o| {
-            if o.status == "ok" {
-                Ok(o)
-            } else {
-                Err(status_message(&o.status))
-            }
-        })
+    check(client, code)
 }

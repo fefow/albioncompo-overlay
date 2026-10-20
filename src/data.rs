@@ -19,20 +19,6 @@ pub enum SlotKind {
 }
 
 impl SlotKind {
-    pub fn label(self) -> &'static str {
-        match self {
-            SlotKind::Mount => "Montura",
-            SlotKind::Weapon => "Arma",
-            SlotKind::Offhand => "Mano secundaria",
-            SlotKind::Head => "Casco",
-            SlotKind::Armor => "Armadura",
-            SlotKind::Shoes => "Botas",
-            SlotKind::Cape => "Capa",
-            SlotKind::Potion => "Poción",
-            SlotKind::Food => "Comida",
-        }
-    }
-
     /// Clave del casillero en `variants` de la web.
     fn variant_key(self) -> &'static str {
         match self {

@@ -16,13 +16,14 @@ Es una ventana aparte, siempre encima y sin foco. No inyecta nada en el juego, n
 
 ### Primer uso
 
-Al abrirlo por primera vez aparece la ventana **Entrar a la asignación**:
+Al abrirlo por primera vez aparece la ventana de ingreso, en dos pasos:
 
-1. **Código**: el de 6 caracteres que genera quien arma la asignación en la web (Asignar → código de acceso).
-2. **Tu nombre en el juego**: si ya te anotaron desde la web con ese nombre, solo te reconoce; si no, te anota.
-3. **Rol** (opcional) e **idioma** de los nombres de ítems (ES, EN o PT).
+1. **Código**: el de 6 caracteres que genera quien arma la asignación en la web. Si no existe o venció, lo avisa ahí mismo.
+2. **Registro**: muestra la asignación encontrada y pide **tu nombre en el juego** y los **roles que podés jugar** (podés elegir varios). Si ya te anotaron desde la web con ese nombre, solo te reconoce.
 
-El código, el nombre, el rol y el idioma se guardan en `%APPDATA%\albioncompo-overlay\config.txt` para la próxima vez. No se guarda ninguna contraseña ni clave.
+Arriba a la derecha elegís el idioma (ES, EN o PT): cambia la interfaz y los nombres de los ítems. La primera vez toma el idioma de Windows.
+
+El código, el nombre, los roles y el idioma se guardan en `%APPDATA%\albioncompo-overlay\config.txt` para la próxima vez. No se guarda ninguna contraseña ni clave.
 
 ### La tira
 

@@ -216,7 +216,7 @@ declare
   -- Igual que normalizeName() de la web.
   v_name   text := btrim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g'));
   v_norm   text := lower(btrim(regexp_replace(coalesce(p_name, ''), '\s+', ' ', 'g')));
-  v_role   text := nullif(left(btrim(coalesce(p_role, '')), 32), '');
+  v_role   text := nullif(left(btrim(coalesce(p_role, '')), 64), '');
 begin
   if upper(btrim(coalesce(p_code, ''))) !~ '^[A-HJ-NP-Z2-9]{6}$' then
     return jsonb_build_object('status', 'invalid');

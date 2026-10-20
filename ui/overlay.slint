@@ -20,6 +20,45 @@ global Palette {
     out property <color> tooltip-bg: #1a130e;
 }
 
+// Textos de las ventanas; Rust los llena según el idioma elegido (src/i18n.rs).
+export global Tr {
+    in property <string> code-title: "Entrá a tu party";
+    in property <string> code-help;
+    in property <string> code-label: "CÓDIGO DE LA ASIGNACIÓN";
+    in property <string> continue: "CONTINUAR";
+    in property <string> close: "CERRAR";
+    in property <string> back: "← Cambiar código";
+    in property <string> register-title;
+    in property <string> register-help;
+    in property <string> name-label;
+    in property <string> name-placeholder;
+    in property <string> roles-label;
+    in property <string> join: "ENTRAR";
+    in property <string> leave: "SALIR";
+    in property <string> lang-label: "IDIOMA";
+    in property <[string]> roles: ["Tank", "Healer", "Support", "DPS rango", "DPS melee", "Montura de batalla"];
+    in property <string> no-role: "SIN ROL";
+    in property <string> alternative: "Alternativa: ";
+}
+
+// Tres puntos que laten: indicador de carga. Solo existe mientras se muestra,
+// así no hay redibujo continuo cuando no hace falta.
+component Dots inherits Rectangle {
+    in property <color> dot-color: Palette.gold;
+    width: 30px;
+    height: 8px;
+
+    for i in 3: Rectangle {
+        x: i * 11px;
+        y: 1px;
+        width: 6px;
+        height: 6px;
+        border-radius: 3px;
+        background: root.dot-color;
+        opacity: 0.25 + 0.75 * (0.5 + 0.5 * sin((animation-tick() / 1ms) * 0.4deg - i * 70deg));
+    }
+}
+
 export struct Slot {
     // Comandos SVG del ícono de reemplazo (viewBox 24x24), mientras carga el real.
     icon: string,
@@ -62,6 +101,10 @@ component SlotView inherits Rectangle {
         height: parent.height - 4px;
         source: slot.image;
         image-fit: contain;
+        // Aparece suave cuando termina de bajar el ícono.
+        opacity: 0;
+        init => { self.opacity = 1; }
+        animate opacity { duration: 220ms; easing: ease-out; }
     }
 
     if !slot.has-image: Path {
@@ -148,6 +191,8 @@ export component OverlayWindow inherits Window {
     in property <color> status-color: Palette.muted;
     in property <bool> party-open;
     in property <string> party-count;
+    // Muestra los puntos de carga junto al mensaje.
+    in property <bool> loading;
     // Ancho de la zona de mensaje cuando no hay casilleros (8 casilleros).
     in property <length> message-width: 332px;
     in-out property <int> hovered-slot: -1;
@@ -269,7 +314,7 @@ export component OverlayWindow inherits Window {
                 spacing: 1px;
 
                 Text {
-                    text: root.role != "" ? root.role : "SIN ROL";
+                    text: root.role != "" ? root.role : Tr.no-role;
                     color: root.role-color;
                     font-size: 10px;
                     font-weight: 700;
@@ -347,6 +392,10 @@ export component OverlayWindow inherits Window {
                     vertical-alignment: center;
                     overflow: elide;
                     horizontal-stretch: 1;
+                }
+
+                if root.loading: Dots {
+                    y: (parent.height - self.height) / 2;
                 }
             }
 
@@ -427,7 +476,7 @@ export component TooltipWindow inherits Window {
         }
 
         if root.alt-name != "": Text {
-            text: "Alternativa: " + root.alt-name;
+            text: Tr.alternative + root.alt-name;
             color: Palette.muted;
             font-size: 11px;
             font-italic: true;
@@ -548,10 +597,12 @@ component Field inherits Rectangle {
     in-out property <string> text;
     in property <bool> enabled: true;
     in property <bool> upper;
+    // Campo grande y centrado (el código).
+    in property <bool> big;
     callback accepted();
     callback edited(string);
 
-    height: 52px;
+    height: big ? 66px : 52px;
     forward-focus: input;
 
     VerticalLayout {
@@ -566,17 +617,21 @@ component Field inherits Rectangle {
         }
 
         Rectangle {
-            height: 32px;
+            height: root.big ? 46px : 32px;
             border-radius: 4px;
             border-width: 1px;
             border-color: input.has-focus ? Palette.gold : Palette.border;
             background: Palette.slot-bg;
+            animate border-color { duration: 160ms; }
 
             if root.text == "" && !input.has-focus: Text {
                 x: 10px;
+                width: parent.width - 20px;
                 text: root.placeholder;
                 color: #6d5f4b;
-                font-size: 13px;
+                font-size: root.big ? 22px : 13px;
+                letter-spacing: root.big ? 6px : 0px;
+                horizontal-alignment: root.big ? center : left;
                 vertical-alignment: center;
                 height: parent.height;
             }
@@ -589,7 +644,10 @@ component Field inherits Rectangle {
                 enabled: root.enabled;
                 color: Palette.text;
                 selection-background-color: #6b5230;
-                font-size: 13px;
+                font-size: root.big ? 22px : 13px;
+                font-weight: root.big ? 600 : 400;
+                letter-spacing: root.big ? 6px : 0px;
+                horizontal-alignment: root.big ? center : left;
                 vertical-alignment: center;
                 single-line: true;
                 accepted => { root.accepted(); }
@@ -612,26 +670,32 @@ component Chip inherits Rectangle {
     in property <string> text;
     in property <bool> selected;
     in property <color> accent: Palette.gold;
+    in property <bool> enabled: true;
     callback clicked();
 
-    height: 26px;
-    min-width: chip-text.preferred-width + 18px;
-    border-radius: 13px;
+    height: 28px;
+    min-width: chip-text.preferred-width + 22px;
+    border-radius: 14px;
     border-width: 1px;
     border-color: selected ? accent : (touch.has-hover ? Palette.frame : Palette.border);
-    background: selected ? accent.with-alpha(0.16) : Palette.slot-bg;
+    background: selected ? accent.with-alpha(0.16) : (touch.has-hover ? Palette.slot-hover : Palette.slot-bg);
+    opacity: enabled ? 1.0 : 0.5;
+    animate background, border-color { duration: 140ms; }
 
     chip-text := Text {
         text: root.text;
-        color: root.selected ? root.accent : Palette.muted;
+        color: root.selected ? root.accent : (touch.has-hover ? Palette.text : Palette.muted);
         font-size: 10px;
         font-weight: 700;
         letter-spacing: 0.8px;
         horizontal-alignment: center;
         vertical-alignment: center;
+        animate color { duration: 140ms; }
     }
 
     touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
         clicked => { root.clicked(); }
     }
 }
@@ -640,17 +704,19 @@ component Button inherits Rectangle {
     in property <string> text;
     in property <bool> primary;
     in property <bool> enabled: true;
+    in property <bool> busy;
     callback clicked();
 
-    height: 34px;
+    height: 36px;
     min-width: 88px;
     border-radius: 4px;
     border-width: 1px;
-    border-color: primary ? Palette.gold : Palette.border;
+    border-color: primary ? (touch.has-hover && enabled ? Palette.gold-bright : Palette.gold) : (touch.has-hover ? Palette.frame : Palette.border);
     background: primary ? (touch.has-hover && enabled ? #5a4325 : #3d2d19) : (touch.has-hover ? Palette.slot-hover : Palette.slot-bg);
-    opacity: enabled ? 1.0 : 0.5;
+    opacity: enabled || busy ? 1.0 : 0.5;
+    animate background, border-color { duration: 140ms; }
 
-    Text {
+    if !root.busy: Text {
         text: root.text;
         color: root.primary ? Palette.gold-bright : Palette.text;
         font-size: 11px;
@@ -660,167 +726,334 @@ component Button inherits Rectangle {
         vertical-alignment: center;
     }
 
+    if root.busy: Dots {
+        dot-color: root.primary ? Palette.gold-bright : Palette.text;
+    }
+
     touch := TouchArea {
-        enabled: root.enabled;
+        enabled: root.enabled && !root.busy;
+        mouse-cursor: pointer;
         clicked => { root.clicked(); }
     }
 }
 
-// Ventana para entrar a una asignación. Es una ventana normal (con foco) porque
-// hay que escribir; se usa fuera de las peleas.
+// Ventana para entrar a una asignación, en dos pasos: primero solo el código y,
+// si existe, el registro (nombre y roles). Es una ventana normal (con foco)
+// porque hay que escribir; se usa fuera de las peleas.
 export component SetupWindow inherits Window {
+    // 0: código, 1: registro.
+    in-out property <int> step: 0;
     in-out property <string> code;
     in-out property <string> name;
-    in-out property <int> role-index: -1;
+    // Roles elegidos como bits (1 = TANK, 2 = HEALER, 4 = SUPPORT...).
+    in-out property <int> role-mask: 0;
     in-out property <int> lang-index: 0;
     in property <string> error-text;
     in property <string> info-text;
+    in property <string> assignment-name;
+    in property <string> assignment-detail;
     in property <bool> busy;
     in property <bool> joined;
-    in property <[string]> roles: ["TANK", "HEALER", "SUPPORT", "RANGE DPS", "MELEE DPS", "BATTLE MOUNT"];
     in property <[color]> role-colors: [#6aa8ff, #45d6a0, #f0a830, #ff9a62, #ff7a6b, #c9b48f];
 
+    callback check-code();
     callback submit();
+    callback back();
     callback leave();
     callback close-clicked();
+    callback lang-changed(int);
 
-    title: "AlbionCompo · Entrar a la asignación";
+    public function focus-code() {
+        code-field.focus-input();
+    }
+
+    public function focus-name() {
+        name-field.focus-input();
+    }
+
+    title: "AlbionCompo";
     always-on-top: true;
     default-font-family: "Segoe UI";
     background: Palette.bg;
-    width: 380px;
-    height: 452px;
+    width: 400px;
+    height: 470px;
 
     forward-focus: code-field;
 
-    VerticalLayout {
-        padding: 18px;
-        spacing: 12px;
+    // Entrada suave de la ventana.
+    property <bool> shown;
+    init => { shown = true; }
 
-        Text {
-            text: "ALBIONCOMPO";
-            color: Palette.gold;
-            font-size: 12px;
-            font-weight: 700;
-            letter-spacing: 2.4px;
-        }
+    function role-on(i: int) -> bool {
+        return Math.mod(Math.floor(root.role-mask / Math.pow(2, i)), 2) == 1;
+    }
 
-        Text {
-            text: "Pedile el código a quien lidera la party. Te anotás con tu nombre y rol, y cuando te asigne una build la vas a ver arriba del juego.";
-            color: Palette.muted;
-            font-size: 12px;
-            wrap: word-wrap;
-        }
+    function toggle-role(i: int) {
+        root.role-mask = root.role-on(i) ? root.role-mask - Math.pow(2, i) : root.role-mask + Math.pow(2, i);
+    }
 
-        code-field := Field {
-            label: "CÓDIGO DE LA ASIGNACIÓN";
-            placeholder: "Ej.: D75TGV";
-            upper: true;
-            text <=> root.code;
-            enabled: !root.busy;
-            accepted => { name-field.focus-input(); }
-        }
+    Rectangle {
+        border-width: 1px;
+        border-color: Palette.border;
+    }
 
-        name-field := Field {
-            label: "TU NOMBRE EN EL JUEGO";
-            placeholder: "Ej.: Dusius";
-            text <=> root.name;
-            enabled: !root.busy;
-            accepted => { root.submit(); }
-        }
+    // Línea dorada arriba, como los paneles del juego.
+    Rectangle {
+        y: 0;
+        height: 2px;
+        background: @linear-gradient(90deg, transparent 0%, Palette.gold 50%, transparent 100%);
+        opacity: 0.7;
+    }
 
-        Text {
-            text: "ROL (OPCIONAL)";
-            color: Palette.muted;
-            font-size: 10px;
-            font-weight: 700;
-            letter-spacing: 1.2px;
-        }
+    content := Rectangle {
+        opacity: root.shown ? 1 : 0;
+        y: root.shown ? 0 : 10px;
+        animate opacity { duration: 260ms; easing: ease-out; }
+        animate y { duration: 260ms; easing: ease-out; }
 
-        VerticalLayout {
-            spacing: 6px;
-
-            HorizontalLayout {
-                spacing: 6px;
-                alignment: start;
-
-                for i in 3: Chip {
-                    text: root.roles[i];
-                    accent: root.role-colors[i];
-                    selected: root.role-index == i;
-                    clicked => { root.role-index = root.role-index == i ? -1 : i; }
-                }
-            }
-
-            HorizontalLayout {
-                spacing: 6px;
-                alignment: start;
-
-                for i in 3: Chip {
-                    text: root.roles[i + 3];
-                    accent: root.role-colors[i + 3];
-                    selected: root.role-index == i + 3;
-                    clicked => { root.role-index = root.role-index == i + 3 ? -1 : i + 3; }
-                }
-            }
-        }
-
+        // Encabezado: marca e idioma (cambia la interfaz y los nombres de ítems).
         HorizontalLayout {
+            y: 16px;
+            x: 22px;
+            width: parent.width - 44px;
+            height: 28px;
             spacing: 6px;
-            alignment: start;
 
             Text {
-                text: "NOMBRES DE ÍTEMS";
-                color: Palette.muted;
-                font-size: 10px;
+                text: "ALBIONCOMPO";
+                color: Palette.gold;
+                font-size: 12px;
                 font-weight: 700;
-                letter-spacing: 1.2px;
+                letter-spacing: 2.4px;
                 vertical-alignment: center;
-            }
-
-            Rectangle {
-                width: 4px;
+                horizontal-stretch: 1;
             }
 
             for lang[i] in ["ES", "EN", "PT"]: Chip {
                 text: lang;
                 selected: root.lang-index == i;
-                clicked => { root.lang-index = i; }
+                clicked => {
+                    if root.lang-index != i {
+                        root.lang-index = i;
+                        root.lang-changed(i);
+                    }
+                }
             }
         }
 
-        Text {
-            text: root.error-text != "" ? root.error-text : root.info-text;
-            color: root.error-text != "" ? Palette.error : Palette.muted;
-            font-size: 12px;
-            wrap: word-wrap;
-            min-height: 16px;
-        }
-
+        // Paso 1: código.
         Rectangle {
-            vertical-stretch: 1;
+            x: root.step == 0 ? 0 : -60px;
+            opacity: root.step == 0 ? 1 : 0;
+            visible: self.opacity > 0.01;
+            animate x { duration: 240ms; easing: ease-out; }
+            animate opacity { duration: 200ms; }
+
+            VerticalLayout {
+                padding-left: 22px;
+                padding-right: 22px;
+                padding-top: 74px;
+                padding-bottom: 20px;
+                spacing: 12px;
+
+                Text {
+                    text: Tr.code-title;
+                    color: Palette.gold-bright;
+                    font-size: 22px;
+                    font-weight: 600;
+                }
+
+                Text {
+                    text: Tr.code-help;
+                    color: Palette.muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+
+                Rectangle {
+                    height: 6px;
+                }
+
+                code-field := Field {
+                    label: Tr.code-label;
+                    placeholder: "D75TGV";
+                    big: true;
+                    upper: true;
+                    text <=> root.code;
+                    enabled: !root.busy;
+                    accepted => { root.check-code(); }
+                }
+
+                Text {
+                    text: root.error-text;
+                    color: Palette.error;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                    min-height: 32px;
+                }
+
+                Rectangle {
+                    vertical-stretch: 1;
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    Button {
+                        text: Tr.close;
+                        clicked => { root.close-clicked(); }
+                    }
+
+                    Button {
+                        text: Tr.continue;
+                        primary: true;
+                        busy: root.busy;
+                        horizontal-stretch: 2;
+                        clicked => { root.check-code(); }
+                    }
+                }
+            }
         }
 
-        HorizontalLayout {
-            spacing: 8px;
+        // Paso 2: registro.
+        Rectangle {
+            x: root.step == 1 ? 0 : 60px;
+            opacity: root.step == 1 ? 1 : 0;
+            visible: self.opacity > 0.01;
+            animate x { duration: 240ms; easing: ease-out; }
+            animate opacity { duration: 200ms; }
 
-            if root.joined: Button {
-                text: "SALIR";
-                enabled: !root.busy;
-                clicked => { root.leave(); }
-            }
+            VerticalLayout {
+                padding-left: 22px;
+                padding-right: 22px;
+                padding-top: 56px;
+                padding-bottom: 20px;
+                spacing: 11px;
 
-            Button {
-                text: "CERRAR";
-                clicked => { root.close-clicked(); }
-            }
+                back-text := Text {
+                    text: Tr.back;
+                    color: back-touch.has-hover ? Palette.gold-bright : Palette.muted;
+                    font-size: 11px;
 
-            Button {
-                text: root.busy ? "ENTRANDO..." : "ENTRAR";
-                primary: true;
-                enabled: !root.busy;
-                horizontal-stretch: 2;
-                clicked => { root.submit(); }
+                    back-touch := TouchArea {
+                        enabled: !root.busy;
+                        mouse-cursor: pointer;
+                        clicked => { root.back(); }
+                    }
+                }
+
+                Text {
+                    text: Tr.register-title;
+                    color: Palette.gold-bright;
+                    font-size: 19px;
+                    font-weight: 600;
+                }
+
+                // Tarjeta de la asignación encontrada.
+                Rectangle {
+                    height: 48px;
+                    border-radius: 4px;
+                    border-width: 1px;
+                    border-color: Palette.frame;
+                    background: Palette.slot-bg;
+
+                    Rectangle {
+                        x: 0;
+                        width: 3px;
+                        border-radius: 1.5px;
+                        background: Palette.gold;
+                    }
+
+                    VerticalLayout {
+                        padding-left: 12px;
+                        padding-right: 10px;
+                        alignment: center;
+                        spacing: 2px;
+
+                        Text {
+                            text: root.assignment-name;
+                            color: Palette.text;
+                            font-size: 13px;
+                            font-weight: 700;
+                            overflow: elide;
+                        }
+
+                        Text {
+                            text: root.assignment-detail;
+                            color: Palette.muted;
+                            font-size: 11px;
+                            overflow: elide;
+                        }
+                    }
+                }
+
+                name-field := Field {
+                    label: Tr.name-label;
+                    placeholder: Tr.name-placeholder;
+                    text <=> root.name;
+                    enabled: !root.busy;
+                    accepted => { root.submit(); }
+                }
+
+                Text {
+                    text: Tr.roles-label;
+                    color: Palette.muted;
+                    font-size: 10px;
+                    font-weight: 700;
+                    letter-spacing: 1.0px;
+                }
+
+                VerticalLayout {
+                    spacing: 6px;
+
+                    for row in 2: HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+
+                        for col in 3: Chip {
+                            text: Tr.roles[row * 3 + col];
+                            accent: root.role-colors[row * 3 + col];
+                            selected: root.role-on(row * 3 + col);
+                            enabled: !root.busy;
+                            clicked => { root.toggle-role(row * 3 + col); }
+                        }
+                    }
+                }
+
+                Text {
+                    text: root.error-text != "" ? root.error-text : (root.info-text != "" ? root.info-text : Tr.register-help);
+                    color: root.error-text != "" ? Palette.error : Palette.muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                    min-height: 32px;
+                }
+
+                Rectangle {
+                    vertical-stretch: 1;
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    if root.joined: Button {
+                        text: Tr.leave;
+                        enabled: !root.busy;
+                        clicked => { root.leave(); }
+                    }
+
+                    Button {
+                        text: Tr.close;
+                        clicked => { root.close-clicked(); }
+                    }
+
+                    Button {
+                        text: Tr.join;
+                        primary: true;
+                        busy: root.busy;
+                        horizontal-stretch: 2;
+                        clicked => { root.submit(); }
+                    }
+                }
             }
         }
     }

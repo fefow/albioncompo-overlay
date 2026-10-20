@@ -5,6 +5,7 @@ mod api;
 mod assets;
 mod config;
 mod data;
+mod i18n;
 #[cfg(windows)]
 mod win;
 mod worker;
@@ -154,6 +155,8 @@ struct State {
     config: Config,
     /// Datos del último ingreso pedido, hasta que el servidor responde.
     pending: Option<Config>,
+    /// Código validado en el primer paso del ingreso y su asignación.
+    checked: Option<(String, Overlay)>,
     phase: Phase,
     overlay: Option<Overlay>,
     /// id original -> nombre en el idioma elegido.
@@ -240,6 +243,7 @@ fn main() -> Result<(), slint::PlatformError> {
         st: RefCell::new(State {
             config,
             pending: None,
+            checked: None,
             phase,
             overlay,
             names: HashMap::new(),
@@ -271,6 +275,7 @@ fn main() -> Result<(), slint::PlatformError> {
     });
     *slot.borrow_mut() = Some(Rc::downgrade(&app));
 
+    apply_tr(app.ui.global::<Tr>(), app.st.borrow().config.lang);
     wire_callbacks(&app);
     render(&app);
 
@@ -415,26 +420,52 @@ fn display_role(build: Option<&api::Build>, entry: Option<&api::Entry>) -> Strin
         .unwrap_or_default()
 }
 
-fn status_for(phase: Phase) -> (&'static str, Color) {
+fn status_for(lang: Lang, phase: Phase) -> (&'static str, Color) {
+    let t = i18n::text(lang);
     let muted = Color::from_rgb_u8(0xa8, 0x96, 0x79);
     let gold = Color::from_rgb_u8(0xd6, 0xad, 0x5e);
     let warn = Color::from_rgb_u8(0xff, 0xb4, 0x54);
     let error = Color::from_rgb_u8(0xff, 0x7a, 0x6b);
     match phase {
-        Phase::NoCode => ("Clic acá para ingresar el código de la party", gold),
-        Phase::Loading => ("Cargando la asignación…", muted),
-        Phase::Waiting => ("Esperando que el líder te asigne una build", muted),
-        Phase::NotJoined => ("No figurás en la asignación · clic para entrar", warn),
+        Phase::NoCode => (t.st_no_code, gold),
+        Phase::Loading => (t.st_loading, muted),
+        Phase::Waiting => (t.st_waiting, muted),
+        Phase::NotJoined => (t.st_not_joined, warn),
         Phase::Assigned => ("", muted),
-        Phase::Expired => ("La asignación venció · clic para cambiar el código", warn),
-        Phase::Invalid => ("Código inválido · clic para cambiarlo", error),
-        Phase::Offline => (
-            "Sin conexión · reintentando (clic para reintentar ya)",
-            warn,
-        ),
-        Phase::RateLimited => ("Demasiados intentos · esperá unos minutos", warn),
-        Phase::NotConfigured => ("Esta versión no tiene configurado el servidor", error),
+        Phase::Expired => (t.st_expired, warn),
+        Phase::Invalid => (t.st_invalid, error),
+        Phase::Offline => (t.st_offline, warn),
+        Phase::RateLimited => (t.st_rate_limited, warn),
+        Phase::NotConfigured => (t.st_not_configured, error),
     }
+}
+
+/// Color del rol (con varios roles, el del primero).
+fn role_color(role: &str) -> Color {
+    data::role_color(i18n::split_roles(role).first().copied().unwrap_or(""))
+}
+
+/// Pasa los textos del idioma elegido a una ventana.
+fn apply_tr(tr: Tr<'_>, lang: Lang) {
+    let t = i18n::text(lang);
+    tr.set_code_title(t.code_title.into());
+    tr.set_code_help(t.code_help.into());
+    tr.set_code_label(t.code_label.into());
+    tr.set_continue(t.continue_.into());
+    tr.set_close(t.close.into());
+    tr.set_back(t.back.into());
+    tr.set_register_title(t.register_title.into());
+    tr.set_register_help(t.register_help.into());
+    tr.set_name_label(t.name_label.into());
+    tr.set_name_placeholder(t.name_placeholder.into());
+    tr.set_roles_label(t.roles_label.into());
+    tr.set_join(t.join.into());
+    tr.set_leave(t.leave.into());
+    tr.set_lang_label(t.lang_label.into());
+    let roles: Vec<slint::SharedString> = t.roles.iter().map(|r| (*r).into()).collect();
+    tr.set_roles(ModelRc::new(VecModel::from(roles)));
+    tr.set_no_role(t.no_role.into());
+    tr.set_alternative(t.alternative.into());
 }
 
 fn pixels_to_image(pixels: &assets::Pixels) -> Image {
@@ -449,8 +480,10 @@ fn pixels_to_image(pixels: &assets::Pixels) -> Image {
 /// Pasa el estado a la tira: casilleros, rol, mensaje y contador de la party.
 fn render(app: &App) {
     let mut wanted = Vec::new();
-    let (slots, tips, role, build_name, status, count) = {
+    let (slots, tips, role, build_name, status, count, lang) = {
         let st = app.st.borrow();
+        let lang = st.config.lang;
+        let t = i18n::text(lang);
         let overlay = st.overlay.as_ref();
         let entry = overlay.and_then(|o| my_entry(o, &st.config.name));
         let build = overlay.zip(entry).and_then(|(o, e)| build_of(o, e));
@@ -479,11 +512,11 @@ fn render(app: &App) {
                 });
                 tips.push(TipInfo {
                     name: if item.id.is_empty() {
-                        "Sin ítem".into()
+                        t.no_item.into()
                     } else {
                         name_of(&item.id)
                     },
-                    label: item.kind.label().into(),
+                    label: t.slots[item.kind as usize].into(),
                     tier,
                     color,
                     alt: item.variant.as_deref().map(name_of).unwrap_or_default(),
@@ -500,9 +533,9 @@ fn render(app: &App) {
             wanted.extend(party_weapon_ids(o));
         }
         let status = if slots.is_empty() && st.phase == Phase::Assigned {
-            status_for(Phase::Waiting)
+            status_for(lang, Phase::Waiting)
         } else {
-            status_for(st.phase)
+            status_for(lang, st.phase)
         };
         let count = overlay
             .map(|o| o.entries.len())
@@ -513,24 +546,21 @@ fn render(app: &App) {
             .filter(|_| show_build)
             .and_then(|b| b.name.clone())
             .unwrap_or_default();
-        (slots, tips, role, build_name, status, count)
+        (slots, tips, role, build_name, status, count, lang)
     };
 
     let ui = &app.ui;
     // En la píldora va el primer casillero con ítem: la montura o el arma.
-    if let Some(main) = tips.iter().find(|t| t.name != "Sin ítem") {
+    let no_item = i18n::text(lang).no_item;
+    if let Some(main) = tips.iter().find(|t| t.name != no_item) {
         ui.set_main_name(main.name.clone().into());
         ui.set_main_tier(main.tier.clone().into());
         ui.set_main_tier_color(main.color);
     }
-    ui.set_role_color(data::role_color(&role));
-    // "BATTLE MOUNT" no entra en la celda del rol.
-    let role = if data::is_mount_role(&role) {
-        "MONTURA".to_owned()
-    } else {
-        role
-    };
-    ui.set_role(role.into());
+    ui.set_role_color(role_color(&role));
+    // "BATTLE MOUNT" no entra en la celda del rol: va la versión corta.
+    ui.set_role(i18n::role_label(lang, &role, true).into());
+    ui.set_loading(app.st.borrow().phase == Phase::Loading);
     ui.set_build_name(build_name.into());
     ui.set_status_text(status.0.into());
     ui.set_status_color(status.1);
@@ -688,12 +718,13 @@ fn on_event(app: &App, event: Event) {
             render(app);
             schedule_poll(app);
         }
-        Event::Joined(Err(message)) => {
+        Event::Checked(code, result) => on_checked(app, code, result),
+        Event::Joined(Err(status)) => {
             app.st.borrow_mut().pending = None;
-            let st = app.st.borrow();
-            if let Some(setup) = &st.setup {
+            let lang = app.st.borrow().config.lang;
+            if let Some(setup) = current_setup(app) {
                 setup.set_busy(false);
-                setup.set_error_text(message.into());
+                setup.set_error_text(i18n::error(lang, &status).into());
             }
         }
         Event::Names(lang, list) => {
@@ -821,6 +852,7 @@ fn show_tooltip(app: &App, index: usize) {
     let Ok(tip) = TooltipWindow::new() else {
         return;
     };
+    apply_tr(tip.global::<Tr>(), app.st.borrow().config.lang);
     let size = {
         let st = app.st.borrow();
         let Some(info) = st.tips.get(index) else {
@@ -876,22 +908,12 @@ fn hide_tooltip(app: &App) {
     }
 }
 
-/// Orden del panel: tanques, healers, supports, DPS y el resto.
-fn role_rank(role: &str) -> u8 {
-    let r = role.to_uppercase();
-    if r.contains("TANK") {
-        0
-    } else if r.contains("HEAL") {
-        1
-    } else if r.contains("SUPPORT") {
-        2
-    } else if r.contains("MOUNT") {
-        5
-    } else if r.contains("DPS") || r.contains("RANGE") || r.contains("MELEE") {
-        3
-    } else {
-        6
-    }
+/// Orden del panel: tanques, healers, supports, DPS, monturas y el resto.
+fn role_rank(role: &str) -> usize {
+    i18n::split_roles(role)
+        .first()
+        .and_then(|r| i18n::role_index(r))
+        .unwrap_or(6)
 }
 
 /// Arma (o montura) de cada build asignada: es el ícono de la fila en la party.
@@ -920,8 +942,10 @@ fn render_party(app: &App) {
             close_party(app);
             return;
         };
+        let lang = st.config.lang;
+        let t = i18n::text(lang);
         let me = normalize_name(&st.config.name);
-        let mut rows: Vec<(u8, String, Member)> = overlay
+        let mut rows: Vec<(usize, String, Member)> = overlay
             .entries
             .iter()
             .map(|e| {
@@ -933,11 +957,11 @@ fn render_party(app: &App) {
                 let member = Member {
                     name: e.name.clone().into(),
                     role: if role.is_empty() {
-                        "SIN ROL".into()
+                        t.no_role.into()
                     } else {
-                        role.clone().into()
+                        i18n::role_label(lang, &role, true).into()
                     },
-                    role_color: data::role_color(&role),
+                    role_color: role_color(&role),
                     assigned: build.is_some(),
                     me: normalize_name(&e.name) == me,
                     has_image: image.is_some(),
@@ -953,9 +977,12 @@ fn render_party(app: &App) {
             .name
             .clone()
             .or_else(|| overlay.composition.name.clone())
-            .unwrap_or_else(|| "Asignación".into())
+            .unwrap_or_else(|| t.assignment.into())
             .to_uppercase();
-        let subheading = format!("{} anotados · {assigned} con build", rows.len());
+        let subheading = t
+            .party_summary
+            .replace("{n}", &rows.len().to_string())
+            .replace("{m}", &assigned.to_string());
         let members: Vec<Member> = rows.into_iter().map(|r| r.2).collect();
         (heading, subheading, members)
     };
@@ -1033,8 +1060,52 @@ fn close_party(app: &App) {
     }
 }
 
+fn current_setup(app: &App) -> Option<SetupWindow> {
+    app.st
+        .borrow()
+        .setup
+        .as_ref()
+        .map(ComponentHandle::clone_strong)
+}
+
+/// Roles guardados ("TANK, HEALER") como bits de la ventana de ingreso.
+fn roles_to_mask(role: &str) -> i32 {
+    i18n::split_roles(role)
+        .into_iter()
+        .filter_map(i18n::role_index)
+        .fold(0, |mask, i| mask | (1 << i))
+}
+
+fn mask_to_roles(mask: i32) -> String {
+    i18n::ROLES
+        .iter()
+        .enumerate()
+        .filter(|(i, _)| mask & (1 << i) != 0)
+        .map(|(_, r)| *r)
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
+/// Tarjeta del segundo paso: nombre de la asignación, composición y anotados.
+fn fill_assignment_card(setup: &SetupWindow, overlay: &Overlay, lang: Lang) {
+    let t = i18n::text(lang);
+    let assignment = overlay.assignment.name.clone();
+    let composition = overlay.composition.name.clone();
+    let title = assignment
+        .clone()
+        .or_else(|| composition.clone())
+        .unwrap_or_else(|| t.assignment.into());
+    let members = t.members.replace("{n}", &overlay.entries.len().to_string());
+    let detail = match composition.filter(|_| assignment.is_some()) {
+        Some(c) => format!("{c} · {members}"),
+        None => members,
+    };
+    setup.set_assignment_name(title.into());
+    setup.set_assignment_detail(detail.into());
+}
+
 fn open_setup(app: &App) {
-    if let Some(setup) = app.st.borrow().setup.as_ref() {
+    if let Some(setup) = current_setup(app) {
         let _ = setup.show();
         return;
     }
@@ -1044,26 +1115,45 @@ fn open_setup(app: &App) {
     let Ok(setup) = setup else { return };
 
     {
-        let st = app.st.borrow();
-        let c = &st.config;
-        setup.set_code(if app.demo { "" } else { c.code.as_str() }.into());
+        let mut st = app.st.borrow_mut();
+        let c = st.config.clone();
+        apply_tr(setup.global::<Tr>(), c.lang);
+        setup.set_code(c.code.clone().into());
         setup.set_name(c.name.clone().into());
-        let roles = setup.get_roles();
-        let index = (0..slint::Model::row_count(&roles))
-            .find(|&i| slint::Model::row_data(&roles, i).is_some_and(|r| r == c.role.as_str()))
-            .map_or(-1, |i| i as i32);
-        setup.set_role_index(index);
+        setup.set_role_mask(roles_to_mask(&c.role));
         setup.set_lang_index(c.lang.index());
-        setup.set_joined(c.has_assignment() && !app.demo);
         if app.demo {
-            setup.set_info_text("Modo demo: no se conecta con AlbionCompo.".into());
+            setup.set_info_text(i18n::text(c.lang).demo.into());
+        }
+        // Con la asignación ya cargada se abre directo en el registro.
+        let loaded = st.overlay.clone().filter(|_| !c.code.is_empty());
+        if let Some(overlay) = loaded {
+            setup.set_joined(my_entry(&overlay, &c.name).is_some());
+            fill_assignment_card(&setup, &overlay, c.lang);
+            setup.set_step(1);
+            st.checked = Some((c.code.clone(), overlay));
         }
     }
 
     let weak = Rc::downgrade(app);
+    setup.on_check_code(move || {
+        if let Some(app) = weak.upgrade() {
+            check_code(&app);
+        }
+    });
+    let weak = Rc::downgrade(app);
     setup.on_submit(move || {
         if let Some(app) = weak.upgrade() {
             submit_setup(&app);
+        }
+    });
+    let weak = Rc::downgrade(app);
+    setup.on_back(move || {
+        let Some(app) = weak.upgrade() else { return };
+        if let Some(setup) = current_setup(&app) {
+            setup.set_error_text("".into());
+            setup.set_step(0);
+            setup.invoke_focus_code();
         }
     });
     let weak = Rc::downgrade(app);
@@ -1076,12 +1166,19 @@ fn open_setup(app: &App) {
                 let _ = st.config.save();
             }
             st.overlay = None;
+            st.checked = None;
             st.phase = Phase::NoCode;
             st.poll_timer.stop();
         }
         close_party(&app);
         close_setup(&app);
         render(&app);
+    });
+    let weak = Rc::downgrade(app);
+    setup.on_lang_changed(move |index| {
+        if let Some(app) = weak.upgrade() {
+            set_lang(&app, Lang::from_index(index));
+        }
     });
     let weak = Rc::downgrade(app);
     setup.on_close_clicked(move || {
@@ -1098,23 +1195,73 @@ fn open_setup(app: &App) {
     });
 
     if setup.show().is_ok() {
+        if setup.get_step() == 0 {
+            setup.invoke_focus_code();
+        } else {
+            setup.invoke_focus_name();
+        }
         app.st.borrow_mut().setup = Some(setup);
     }
 }
 
-fn submit_setup(app: &App) {
-    let Some(setup) = app
-        .st
-        .borrow()
-        .setup
-        .as_ref()
-        .map(ComponentHandle::clone_strong)
-    else {
+/// Primer paso: valida el formato y pregunta al servidor si el código existe.
+fn check_code(app: &App) {
+    let Some(setup) = current_setup(app) else {
         return;
     };
+    let lang = app.st.borrow().config.lang;
     setup.set_error_text("".into());
     let Some(code) = normalize_code(&setup.get_code()) else {
-        setup.set_error_text("El código tiene 6 letras y números, por ejemplo D75TGV.".into());
+        setup.set_error_text(i18n::text(lang).bad_code.into());
+        return;
+    };
+    setup.set_code(code.clone().into());
+    setup.set_busy(true);
+    if app.demo {
+        let overlay = app
+            .st
+            .borrow()
+            .overlay
+            .clone()
+            .unwrap_or_else(|| data::demo_overlay(false));
+        on_event(app, Event::Checked(code, Ok(overlay)));
+        return;
+    }
+    let _ = app.tx.send(Command::Check { code });
+}
+
+fn on_checked(app: &App, code: String, result: Result<Overlay, String>) {
+    let Some(setup) = current_setup(app) else {
+        return;
+    };
+    setup.set_busy(false);
+    let config = app.st.borrow().config.clone();
+    match result {
+        Ok(overlay) => {
+            let name = setup.get_name();
+            setup.set_joined(config.code == code && my_entry(&overlay, &name).is_some());
+            fill_assignment_card(&setup, &overlay, config.lang);
+            app.st.borrow_mut().checked = Some((code, overlay));
+            setup.set_error_text("".into());
+            setup.set_step(1);
+            setup.invoke_focus_name();
+        }
+        Err(status) => setup.set_error_text(i18n::error(config.lang, &status).into()),
+    }
+}
+
+/// Segundo paso: se anota con nombre y roles.
+fn submit_setup(app: &App) {
+    let Some(setup) = current_setup(app) else {
+        return;
+    };
+    let (lang, checked) = {
+        let st = app.st.borrow();
+        (st.config.lang, st.checked.clone())
+    };
+    setup.set_error_text("".into());
+    let Some((code, checked)) = checked else {
+        setup.set_step(0);
         return;
     };
     let name = setup
@@ -1124,42 +1271,70 @@ fn submit_setup(app: &App) {
         .join(" ");
     let len = name.chars().count();
     if !(2..=32).contains(&len) {
-        setup.set_error_text("Poné tu nombre del juego (entre 2 y 32 caracteres).".into());
+        setup.set_error_text(i18n::text(lang).bad_name.into());
         return;
     }
-    let index = setup.get_role_index();
-    let role = (index >= 0)
-        .then(|| slint::Model::row_data(&setup.get_roles(), index as usize))
-        .flatten()
-        .map(|r| r.to_string())
-        .unwrap_or_default();
-    let lang = Lang::from_index(setup.get_lang_index());
+    let role = mask_to_roles(setup.get_role_mask());
     let config = Config {
         code: code.clone(),
         name: name.clone(),
         role: role.clone(),
         lang,
     };
-    setup.set_code(code.clone().into());
     setup.set_name(name.clone().into());
     setup.set_busy(true);
+    app.st.borrow_mut().pending = Some(config);
 
     if app.demo {
         // Sin servidor: se anota en la asignación de prueba.
-        let mut overlay = app.st.borrow().overlay.clone().unwrap_or_default();
+        let mut overlay = checked;
         if my_entry(&overlay, &name).is_none() {
             overlay.entries.push(api::Entry {
-                name: name.clone(),
+                name,
                 role: (!role.is_empty()).then_some(role),
                 build_id: None,
             });
         }
-        app.st.borrow_mut().pending = Some(config);
         on_event(app, Event::Joined(Ok(overlay)));
         return;
     }
-    app.st.borrow_mut().pending = Some(config);
     let _ = app.tx.send(Command::Join { code, name, role });
+}
+
+/// Cambia el idioma de la interfaz y de los nombres de ítems, al momento.
+fn set_lang(app: &App, lang: Lang) {
+    {
+        let mut st = app.st.borrow_mut();
+        if st.config.lang == lang {
+            return;
+        }
+        st.config.lang = lang;
+        st.names.clear();
+        st.requested.clear();
+        if let Some(pending) = st.pending.as_mut() {
+            pending.lang = lang;
+        }
+        if !app.demo {
+            let _ = st.config.save();
+        }
+    }
+    apply_tr(app.ui.global::<Tr>(), lang);
+    let st = app.st.borrow();
+    if let Some(tip) = &st.tooltip {
+        apply_tr(tip.global::<Tr>(), lang);
+    }
+    if let Some(setup) = &st.setup {
+        apply_tr(setup.global::<Tr>(), lang);
+        setup.set_error_text("".into());
+        if app.demo {
+            setup.set_info_text(i18n::text(lang).demo.into());
+        }
+        if let Some((_, overlay)) = &st.checked {
+            fill_assignment_card(setup, overlay, lang);
+        }
+    }
+    drop(st);
+    render(app);
 }
 
 /// Cierra la ventana de ingreso. Se destruye en la vuelta siguiente del
