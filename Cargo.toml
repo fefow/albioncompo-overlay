@@ -1,0 +1,21 @@
+[package]
+name = "albioncompo-overlay"
+version = "0.1.0"
+edition = "2024"
+license = "MIT"
+
+[dependencies]
+slint = { version = "=1.18.1", default-features = false, features = ["std", "compat-1-2", "backend-winit", "renderer-software", "software-renderer-systemfonts", "software-renderer-path", "unstable-winit-030"] }
+
+[target.'cfg(windows)'.dependencies]
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_UI_Input_KeyboardAndMouse"] }
+
+[build-dependencies]
+slint-build = "=1.18.1"
+
+# Binario chico y sin código de unwinding; la RAM que importa es la de ejecución.
+[profile.release]
+lto = true
+codegen-units = 1
+panic = "abort"
+strip = true

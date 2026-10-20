@@ -1,0 +1,213 @@
+// UI del overlay. Paleta y medidas del diseño v2 aprobado.
+// Las ventanas no tienen marco ni transparencia: las esquinas redondeadas
+// las recorta Windows con una región (SetWindowRgn), así el renderer por
+// software no tiene que mezclar alfa con lo que hay detrás.
+
+global Palette {
+    out property <color> bg: #0d121b;
+    out property <color> panel: #151b27;
+    out property <color> border: #263044;
+    out property <color> amber: #f0a830;
+    out property <color> text: #e8ecf4;
+    out property <color> muted: #8b97ad;
+    out property <color> icon: #aab6cc;
+    out property <color> tooltip-bg: #0b0f17;
+    out property <color> tooltip-border: #3a465c;
+}
+
+export struct Slot {
+    // Comandos SVG del ícono de reemplazo (viewBox 24x24) hasta tener los íconos del juego.
+    icon: string,
+    // "8", "8.1"... vacío si el casillero no tiene ítem.
+    tier: string,
+    tier-color: color,
+    // .1 a .4: el borde toma el color del encantamiento.
+    enchanted: bool,
+    empty: bool,
+}
+
+component SlotView inherits Rectangle {
+    in property <Slot> slot;
+    in property <bool> hovered;
+
+    width: 38px;
+    height: 38px;
+    border-radius: 6px;
+    border-width: 1px;
+    background: hovered ? #1c2434 : Palette.panel;
+    border-color: slot.enchanted ? slot.tier-color : Palette.border;
+    opacity: slot.empty ? 0.4 : 1.0;
+
+    Path {
+        width: 19px;
+        height: 19px;
+        viewbox-width: 24;
+        viewbox-height: 24;
+        commands: slot.icon;
+        stroke: hovered ? Palette.text : Palette.icon;
+        stroke-width: 1.6px;
+        stroke-line-cap: round;
+        fill: transparent;
+    }
+
+    if !slot.empty && slot.tier != "": Text {
+        x: parent.width - self.width - 3px;
+        y: parent.height - self.height - 1px;
+        text: slot.tier;
+        color: slot.tier-color;
+        font-size: 9px;
+        font-weight: 700;
+    }
+}
+
+export component OverlayWindow inherits Window {
+    in property <bool> pill-mode;
+    in property <bool> click-through;
+    in property <[Slot]> slots;
+    in property <string> role;
+    in property <color> role-color;
+    in property <string> main-name;
+    in property <string> main-tier;
+    in property <color> main-tier-color;
+    in-out property <int> hovered-slot: -1;
+
+    // index, true al entrar / false al salir.
+    callback slot-hover(int, bool);
+
+    title: "AlbionCompo";
+    no-frame: true;
+    always-on-top: true;
+    default-font-family: "Segoe UI";
+    background: Palette.bg;
+    width: pill-mode ? 300px : slots.length * 42px - 4px + 18px;
+    height: pill-mode ? 34px : 54px;
+
+    // Borde dibujado (la región recorta las esquinas; esto da el contorno).
+    Rectangle {
+        border-width: 1px;
+        border-radius: pill-mode ? 17px : 10px;
+        border-color: click-through ? Palette.amber : Palette.border;
+    }
+
+    if pill-mode: HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 9px;
+        alignment: stretch;
+
+        Rectangle {
+            width: 8px;
+            height: 8px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 4px;
+            background: root.role-color;
+        }
+
+        Text {
+            text: root.role;
+            color: root.role-color;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1.4px;
+            vertical-alignment: center;
+        }
+
+        Rectangle {
+            width: 1px;
+            height: 14px;
+            y: (parent.height - self.height) / 2;
+            background: Palette.border;
+        }
+
+        Text {
+            text: root.main-name;
+            color: Palette.text;
+            font-size: 12.5px;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+
+        Text {
+            text: root.main-tier;
+            color: root.main-tier-color;
+            font-size: 11px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+    }
+
+    if !pill-mode: HorizontalLayout {
+        padding-left: 9px;
+        padding-right: 9px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 4px;
+
+        for slot[i] in root.slots: SlotView {
+            slot: slot;
+            hovered: root.hovered-slot == i;
+
+            TouchArea {
+                changed has-hover => {
+                    root.hovered-slot = self.has-hover ? i : (root.hovered-slot == i ? -1 : root.hovered-slot);
+                    root.slot-hover(i, self.has-hover);
+                }
+            }
+        }
+    }
+}
+
+// Tooltip: ventana aparte que se crea ~300 ms después del hover y se destruye al salir.
+export component TooltipWindow inherits Window {
+    in property <string> item-name;
+    in property <string> slot-label;
+    in property <string> tier;
+    in property <color> tier-color;
+
+    title: "AlbionCompo tooltip";
+    no-frame: true;
+    always-on-top: true;
+    default-font-family: "Segoe UI";
+    background: Palette.tooltip-bg;
+    height: 46px;
+
+    Rectangle {
+        border-width: 1px;
+        border-radius: 8px;
+        border-color: Palette.tooltip-border;
+    }
+
+    VerticalLayout {
+        padding-left: 11px;
+        padding-right: 11px;
+        padding-top: 7px;
+        padding-bottom: 7px;
+        spacing: 2px;
+
+        Text {
+            text: root.item-name;
+            color: Palette.text;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        HorizontalLayout {
+            spacing: 0px;
+            alignment: start;
+
+            Text {
+                text: root.slot-label + " · ";
+                color: Palette.muted;
+                font-size: 11px;
+            }
+
+            Text {
+                text: "T" + root.tier;
+                color: root.tier-color;
+                font-size: 11px;
+                font-weight: 700;
+            }
+        }
+    }
+}
