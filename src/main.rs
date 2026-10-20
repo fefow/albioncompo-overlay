@@ -19,7 +19,10 @@ slint::include_modules!();
 
 /// El tooltip aparece si el mouse se queda este tiempo sobre un casillero.
 const TOOLTIP_DELAY: Duration = Duration::from_millis(300);
-/// Separación entre la tira y el tooltip, y entre la tira y el borde de la pantalla.
+/// Cada cuánto se mira si Albion sigue en primer plano (una consulta barata a Windows).
+#[cfg(windows)]
+const FOREGROUND_POLL: Duration = Duration::from_millis(300);
+/// Separación entre la tira y el tooltip, y entre la tira y el borde del juego.
 const GAP: f32 = 6.0;
 const TOP_MARGIN: f32 = 8.0;
 const SLOT_STEP: f32 = 42.0;
@@ -28,15 +31,18 @@ const STRIP_PAD_LEFT: f32 = 9.0;
 struct Args {
     montura: bool,
     pildora: bool,
+    siempre: bool,
     alpha: u8,
 }
 
 /// `--montura` simula el rol de montura de batalla (9 casilleros).
 /// `--pildora` arranca en modo píldora. `--opacidad N` de 30 a 100 (por defecto 92).
+/// `--siempre` lo muestra aunque Albion no esté en primer plano (para probar sin el juego).
 fn parse_args() -> Args {
     let mut args = Args {
         montura: false,
         pildora: false,
+        siempre: false,
         alpha: pct_to_alpha(92),
     };
     let mut it = std::env::args().skip(1);
@@ -44,6 +50,7 @@ fn parse_args() -> Args {
         match arg.as_str() {
             "--montura" => args.montura = true,
             "--pildora" => args.pildora = true,
+            "--siempre" => args.siempre = true,
             "--opacidad" => {
                 if let Some(pct) = it.next().and_then(|v| v.parse::<u32>().ok()) {
                     args.alpha = pct_to_alpha(pct.clamp(30, 100));
@@ -91,6 +98,15 @@ struct State {
     timer: Timer,
     #[cfg(windows)]
     hwnd: Option<win::Hwnd>,
+    /// Área del juego cuando está en primer plano; la tira se centra arriba de ella.
+    #[cfg(windows)]
+    game: Option<win::GameRect>,
+    #[cfg(windows)]
+    visible: bool,
+    #[cfg(windows)]
+    watch: win::ForegroundWatch,
+    #[cfg(windows)]
+    follow_timer: Timer,
 }
 
 fn main() -> Result<(), slint::PlatformError> {
@@ -142,6 +158,14 @@ fn main() -> Result<(), slint::PlatformError> {
         timer: Timer::default(),
         #[cfg(windows)]
         hwnd: None,
+        #[cfg(windows)]
+        game: None,
+        #[cfg(windows)]
+        visible: true,
+        #[cfg(windows)]
+        watch: win::ForegroundWatch::default(),
+        #[cfg(windows)]
+        follow_timer: Timer::default(),
     }));
 
     ui.on_slot_hover({
@@ -197,6 +221,25 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         drop(winit_window);
         place_main(&ui, &setup_state);
+
+        // Solo visible con Albion-Online.exe en primer plano, salvo con --siempre.
+        #[cfg(windows)]
+        if !args.siempre {
+            follow_game(&ui, &setup_state);
+            let weak = ui.as_weak();
+            let state = setup_state.clone();
+            setup_state.borrow().follow_timer.start(
+                TimerMode::Repeated,
+                FOREGROUND_POLL,
+                move || {
+                    if let Some(ui) = weak.upgrade() {
+                        follow_game(&ui, &state);
+                    }
+                },
+            );
+        }
+        #[cfg(not(windows))]
+        let _ = args.siempre;
     })
     .expect("el bucle de eventos de Slint no está disponible");
 
@@ -213,7 +256,8 @@ fn main_size(ui: &OverlayWindow) -> LogicalSize {
     }
 }
 
-/// Ajusta tamaño, esquinas y posición (arriba al centro del monitor).
+/// Ajusta tamaño, esquinas y posición: arriba al centro del área del juego,
+/// o del monitor si todavía no se vio el juego.
 fn place_main(ui: &OverlayWindow, state: &Rc<RefCell<State>>) {
     let scale = ui.window().scale_factor();
     let size = main_size(ui);
@@ -234,6 +278,15 @@ fn place_main(ui: &OverlayWindow, state: &Rc<RefCell<State>>) {
     #[cfg(not(windows))]
     let _ = (state, height);
 
+    let margin = (TOP_MARGIN * scale).round() as i32;
+    #[cfg(windows)]
+    if let Some(game) = state.borrow().game {
+        let x = game.x + (game.width - width) / 2;
+        ui.window()
+            .set_position(PhysicalPosition::new(x, game.y + margin));
+        return;
+    }
+
     let monitor = ui
         .window()
         .with_winit_window(|w| w.current_monitor().or_else(|| w.primary_monitor()))
@@ -242,8 +295,8 @@ fn place_main(ui: &OverlayWindow, state: &Rc<RefCell<State>>) {
         let origin = monitor.position();
         let msize = monitor.size();
         let x = origin.x + (msize.width as i32 - width) / 2;
-        let y = origin.y + (TOP_MARGIN * scale).round() as i32;
-        ui.window().set_position(PhysicalPosition::new(x, y));
+        ui.window()
+            .set_position(PhysicalPosition::new(x, origin.y + margin));
     }
 }
 
@@ -263,25 +316,14 @@ fn show_tooltip(ui: &OverlayWindow, state: &Rc<RefCell<State>>, index: usize) {
         tip.set_tier_color(info.color);
     }
 
-    // Debajo de la tira si arriba no hay lugar (la tira va pegada al borde superior).
+    // Debajo de la tira, que siempre va arriba del juego.
     let scale = ui.window().scale_factor();
     let main_pos = ui.window().position();
     let main_h = ui.window().size().height as i32;
-    let tip_h = (46.0 * scale).round() as i32;
     let gap = (GAP * scale).round() as i32;
     let x = main_pos.x + ((STRIP_PAD_LEFT + index as f32 * SLOT_STEP) * scale).round() as i32;
-    let above = main_pos.y - tip_h - gap;
-    let monitor_top = ui
-        .window()
-        .with_winit_window(|w| w.current_monitor().map(|m| m.position().y))
-        .flatten()
-        .unwrap_or(0);
-    let y = if above >= monitor_top {
-        above
-    } else {
-        main_pos.y + main_h + gap
-    };
-    tip.window().set_position(PhysicalPosition::new(x, y));
+    tip.window()
+        .set_position(PhysicalPosition::new(x, main_pos.y + main_h + gap));
 
     if tip.show().is_err() {
         return;
@@ -317,6 +359,38 @@ fn hide_tooltip(state: &Rc<RefCell<State>>) {
     let tip = state.borrow_mut().tooltip.take();
     if let Some(tip) = tip {
         let _ = tip.hide();
+    }
+}
+
+/// Muestra la tira solo con Albion en primer plano y la mantiene centrada
+/// arriba del área del juego (sirve con resoluciones o ventanas modificadas).
+#[cfg(windows)]
+fn follow_game(ui: &OverlayWindow, state: &Rc<RefCell<State>>) {
+    let game = state.borrow_mut().watch.albion_rect();
+    let Some(hwnd) = state.borrow().hwnd else {
+        return;
+    };
+    match game {
+        Some(rect) => {
+            let moved = state.borrow().game != Some(rect);
+            if moved {
+                state.borrow_mut().game = Some(rect);
+                place_main(ui, state);
+            }
+            if !state.borrow().visible {
+                win::set_visible(hwnd, true);
+                state.borrow_mut().visible = true;
+            }
+        }
+        None => {
+            if state.borrow().visible {
+                ui.set_hovered_slot(-1);
+                state.borrow().timer.stop();
+                hide_tooltip(state);
+                win::set_visible(hwnd, false);
+                state.borrow_mut().visible = false;
+            }
+        }
     }
 }
 

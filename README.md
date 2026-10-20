@@ -14,7 +14,9 @@ Es una ventana aparte, siempre encima y sin foco. No inyecta nada en el juego, n
 2. Comprobá el SHA-256 con el de `SHA256SUMS.txt`: `Get-FileHash albioncompo-overlay.exe`.
 3. Ejecutalo. Como todavía no está firmado, Windows SmartScreen va a avisar: **Más información → Ejecutar de todas formas**.
 
-La tira aparece arriba al centro de la pantalla. Pasá el mouse sobre un casillero y a los 300 ms aparece el nombre del ítem.
+La tira aparece solo cuando **Albion-Online.exe** está en primer plano, arriba al centro del área del juego (también con resoluciones o ventanas modificadas). Si cambiás a otra ventana se oculta. Para saberlo mira 3 veces por segundo qué programa está en primer plano, igual que el Administrador de tareas: no toca el juego.
+
+Pasá el mouse sobre un casillero y a los 300 ms aparece el nombre del ítem.
 
 | Atajo | Qué hace |
 |---|---|
@@ -28,6 +30,7 @@ Opciones al ejecutar desde una terminal:
 |---|---|
 | `--montura` | Simula el rol de montura de batalla (9 casilleros) |
 | `--pildora` | Arranca en modo píldora |
+| `--siempre` | Se muestra aunque Albion no esté en primer plano (para probar sin el juego) |
 | `--opacidad 80` | Opacidad de 30 a 100 (por defecto 92) |
 
 ## Compilar
