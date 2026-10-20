@@ -192,13 +192,17 @@ fn process_exe_name(hwnd: HWND) -> Option<String> {
 pub enum Hotkey {
     ClickThrough,
     PillMode,
+    Party,
+    Setup,
     Quit,
 }
 
-const HOTKEYS: [(Hotkey, i32, u32); 3] = [
+const HOTKEYS: [(Hotkey, i32, u32); 5] = [
     (Hotkey::ClickThrough, 1, b'L' as u32),
     (Hotkey::PillMode, 2, b'M' as u32),
     (Hotkey::Quit, 3, b'Q' as u32),
+    (Hotkey::Party, 4, b'P' as u32),
+    (Hotkey::Setup, 5, b'K' as u32),
 ];
 
 type HotkeyHandler = Box<dyn Fn(Hotkey)>;

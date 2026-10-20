@@ -2,7 +2,7 @@
 
 Overlay para Windows que muestra tu build asignada de [AlbionCompo](https://albioncompo.com) arriba del juego, sin tapar nada y gastando lo mínimo de RAM y CPU.
 
-> **Estado: prototipo 2.** Muestra datos de prueba fijos y no se conecta a internet. Sirve para medir cuánto consume la interfaz antes de sumar la red, los íconos y los nombres por idioma.
+> **Estado: prototipo 3.** Conectado al planificador de asignaciones de la web: entrás con el código, te anotás con tu nombre y rol, y cuando el líder te asigna una build la ves arriba del juego con íconos, nombres y la party completa.
 
 ## Seguro frente al juego
 
@@ -14,21 +14,43 @@ Es una ventana aparte, siempre encima y sin foco. No inyecta nada en el juego, n
 2. Comprobá el SHA-256 con el de `SHA256SUMS.txt`: `Get-FileHash albioncompo-overlay.exe`.
 3. Ejecutalo. Como todavía no está firmado, Windows SmartScreen va a avisar: **Más información → Ejecutar de todas formas**.
 
-La tira aparece solo cuando **Albion-Online.exe** está en primer plano, arriba al centro del área del juego (también con resoluciones o ventanas modificadas). Si cambiás a otra ventana se oculta. Para saberlo mira 3 veces por segundo qué programa está en primer plano, igual que el Administrador de tareas: no toca el juego.
+### Primer uso
 
-Pasá el mouse sobre un casillero y a los 300 ms aparece el nombre del ítem.
+Al abrirlo por primera vez aparece la ventana **Entrar a la asignación**:
+
+1. **Código**: el de 6 caracteres que genera quien arma la asignación en la web (Asignar → código de acceso).
+2. **Tu nombre en el juego**: si ya te anotaron desde la web con ese nombre, solo te reconoce; si no, te anota.
+3. **Rol** (opcional) e **idioma** de los nombres de ítems (ES, EN o PT).
+
+El código, el nombre, el rol y el idioma se guardan en `%APPDATA%\albioncompo-overlay\config.txt` para la próxima vez. No se guarda ninguna contraseña ni clave.
+
+### La tira
+
+Aparece solo cuando **Albion-Online.exe** está en primer plano, arriba al centro del área del juego (también con resoluciones o ventanas modificadas). Si cambiás a otra ventana se oculta. Para saberlo mira 3 veces por segundo qué programa está en primer plano, igual que el Administrador de tareas: no toca el juego.
+
+- **Sin build todavía**: muestra tu rol y el estado (esperando al líder, código vencido, sin conexión...). Un clic en el mensaje abre el ingreso o reintenta.
+- **Con build asignada**: a la izquierda el rol y el nombre de la build, después los 8 casilleros (9 con rol de montura de batalla, con la montura primero). Pasá el mouse sobre un casillero y a los 300 ms aparece el nombre del ítem, el tier y la alternativa si la build tiene una.
+- **Botón de la party** (a la derecha): despliega quiénes están anotados, con su rol y el arma de su build, ordenados por rol. Tu fila va resaltada.
+- **Clic derecho** en cualquier parte de la tira: abre la ventana de ingreso (cambiar código, nombre, idioma o salir de la asignación).
+
+Los íconos salen de `render.albiononline.com` y los nombres de los mismos archivos que usa la web; los dos quedan en caché en `%LOCALAPPDATA%\albioncompo-overlay`, así que se bajan una sola vez.
+
+Consulta la asignación cada 15 s mientras esperás build, cada 3 min cuando ya la tenés y nunca mientras el juego no está en primer plano. Si no hubo cambios el servidor responde "sin cambios" sin mandar todo de nuevo.
 
 | Atajo | Qué hace |
 |---|---|
 | Ctrl+Shift+L | Click-through: el mouse atraviesa el overlay y el juego recibe todos los clics (el borde se pone ámbar) |
 | Ctrl+Shift+M | Alterna entre la tira y la píldora |
+| Ctrl+Shift+P | Abre o cierra el panel de la party |
+| Ctrl+Shift+K | Abre la ventana de ingreso (código, nombre, idioma) |
 | Ctrl+Shift+Q | Cierra el overlay |
 
 Opciones al ejecutar desde una terminal:
 
 | Opción | Qué hace |
 |---|---|
-| `--montura` | Simula el rol de montura de batalla (9 casilleros) |
+| `--demo` | Usa una asignación de prueba, sin código ni servidor |
+| `--montura` | Como `--demo`, con rol de montura de batalla (9 casilleros) |
 | `--pildora` | Arranca en modo píldora |
 | `--siempre` | Se muestra aunque Albion no esté en primer plano (para probar sin el juego) |
 | `--opacidad 80` | Opacidad de 30 a 100 (por defecto 92) |
@@ -40,6 +62,8 @@ Lo compila GitHub Actions en `windows-latest` en cada push ([`build.yml`](.githu
 ```
 cargo build --release
 ```
+
+Para conectarse, el .exe necesita la dirección del proyecto de Supabase y su clave pública (anon), la misma que la web ya publica en su JavaScript. En GitHub van como **Variables** del repositorio (Settings → Secrets and variables → Actions → Variables): `ALBIONCOMPO_SUPABASE_URL` y `ALBIONCOMPO_SUPABASE_ANON_KEY`. A mano, se definen como variables de entorno antes de compilar. La base necesita las funciones de [`sql/overlay.sql`](sql/overlay.sql).
 
 Usa [Slint](https://slint.dev) con el renderer por software (sin GPU ni WebView) y el crate `windows` para lo que Slint no expone: ventana sin foco, fuera de la barra de tareas, opacidad, esquinas redondeadas, click-through y atajos con `RegisterHotKey`.
 

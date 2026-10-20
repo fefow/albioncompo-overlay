@@ -13,6 +13,13 @@ permissions:
 jobs:
   windows:
     runs-on: windows-latest
+    # Dirección del proyecto de Supabase y su clave pública (anon), la misma que
+    # ya publica la web. Van en Settings → Secrets and variables → Actions →
+    # Variables. Sin ellas el .exe compila igual y avisa que no tiene servidor.
+    env:
+      ALBIONCOMPO_SUPABASE_URL: ${{ vars.ALBIONCOMPO_SUPABASE_URL }}
+      ALBIONCOMPO_SUPABASE_ANON_KEY: ${{ vars.ALBIONCOMPO_SUPABASE_ANON_KEY }}
+      ALBIONCOMPO_SITE_URL: ${{ vars.ALBIONCOMPO_SITE_URL }}
     steps:
       - uses: actions/checkout@v4
 
@@ -45,6 +52,9 @@ jobs:
           "### albioncompo-overlay.exe" >> $env:GITHUB_STEP_SUMMARY
           "- SHA-256: ``$hash``" >> $env:GITHUB_STEP_SUMMARY
           "- Tamaño: $([math]::Round($size / 1MB, 2)) MB" >> $env:GITHUB_STEP_SUMMARY
+          if (-not $env:ALBIONCOMPO_SUPABASE_URL -or -not $env:ALBIONCOMPO_SUPABASE_ANON_KEY) {
+            "- ⚠️ Sin las variables ALBIONCOMPO_SUPABASE_URL / ALBIONCOMPO_SUPABASE_ANON_KEY: solo funciona ``--demo``" >> $env:GITHUB_STEP_SUMMARY
+          }
 
       - uses: actions/upload-artifact@v4
         with:
