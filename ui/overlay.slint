@@ -593,7 +593,12 @@ component Field inherits Rectangle {
                 vertical-alignment: center;
                 single-line: true;
                 accepted => { root.accepted(); }
-                edited => { root.edited(self.text); }
+                edited => {
+                    if root.upper && self.text != self.text.to-uppercase() {
+                        self.text = self.text.to-uppercase();
+                    }
+                    root.edited(self.text);
+                }
             }
         }
     }
@@ -710,6 +715,7 @@ export component SetupWindow inherits Window {
         code-field := Field {
             label: "CÓDIGO DE LA ASIGNACIÓN";
             placeholder: "Ej.: D75TGV";
+            upper: true;
             text <=> root.code;
             enabled: !root.busy;
             accepted => { name-field.focus-input(); }
