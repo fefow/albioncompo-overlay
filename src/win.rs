@@ -11,13 +11,24 @@ use windows::Win32::Foundation::{
     COLORREF, CloseHandle, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
 };
 use windows::Win32::Graphics::Gdi::{ClientToScreen, CreateRoundRectRgn, SetWindowRgn};
+use windows::Win32::System::LibraryLoader::GetModuleHandleW;
 use windows::Win32::System::Threading::{
     OpenProcess, PROCESS_NAME_WIN32, PROCESS_QUERY_LIMITED_INFORMATION, QueryFullProcessImageNameW,
 };
 use windows::Win32::UI::Input::KeyboardAndMouse::{
     MOD_CONTROL, MOD_NOREPEAT, MOD_SHIFT, RegisterHotKey, UnregisterHotKey,
 };
-use windows::Win32::UI::Shell::{DefSubclassProc, RemoveWindowSubclass, SetWindowSubclass};
+use windows::Win32::UI::Shell::{
+    DefSubclassProc, NIF_ICON, NIF_MESSAGE, NIF_TIP, NIM_ADD, NIM_DELETE, NOTIFYICONDATAW,
+    RemoveWindowSubclass, SetWindowSubclass, Shell_NotifyIconW,
+};
+use windows::Win32::UI::WindowsAndMessaging::{
+    AppendMenuW, CreatePopupMenu, DestroyMenu, GetCursorPos, GetSystemMetrics, HICON,
+    IDI_APPLICATION, IMAGE_ICON, LR_DEFAULTCOLOR, LoadIconW, LoadImageW, MF_CHECKED, MF_GRAYED,
+    MF_SEPARATOR, MF_STRING, PostMessageW, SM_CXSMICON, SM_CYSMICON, SetForegroundWindow,
+    TPM_BOTTOMALIGN, TPM_RETURNCMD, TPM_RIGHTALIGN, TPM_RIGHTBUTTON, TrackPopupMenu, WM_APP,
+    WM_CONTEXTMENU, WM_LBUTTONUP, WM_NULL, WM_RBUTTONUP,
+};
 use windows::Win32::UI::WindowsAndMessaging::{
     GWL_EXSTYLE, GWL_STYLE, GetClientRect, GetForegroundWindow, GetWindowLongPtrW,
     GetWindowThreadProcessId, LWA_ALPHA, SET_WINDOW_POS_FLAGS, STYLESTRUCT, SW_HIDE,
@@ -26,6 +37,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
     WM_NCACTIVATE, WM_NCDESTROY, WM_NCPAINT, WM_STYLECHANGING, WS_CAPTION, WS_EX_LAYERED,
     WS_EX_NOACTIVATE, WS_EX_TOOLWINDOW, WS_EX_TRANSPARENT, WS_SYSMENU,
 };
+use windows::core::PCWSTR;
 
 /// Nombre del ejecutable del juego.
 const GAME_EXE: &str = "Albion-Online.exe";
@@ -194,21 +206,139 @@ pub enum Hotkey {
     PillMode,
     Party,
     Setup,
+    Hide,
     Quit,
 }
 
-const HOTKEYS: [(Hotkey, i32, u32); 5] = [
+const HOTKEYS: [(Hotkey, i32, u32); 6] = [
     (Hotkey::ClickThrough, 1, b'L' as u32),
     (Hotkey::PillMode, 2, b'M' as u32),
     (Hotkey::Quit, 3, b'Q' as u32),
     (Hotkey::Party, 4, b'P' as u32),
     (Hotkey::Setup, 5, b'K' as u32),
+    (Hotkey::Hide, 6, b'H' as u32),
 ];
 
 type HotkeyHandler = Box<dyn Fn(Hotkey)>;
 
+type TrayHandler = Box<dyn Fn(TrayEvent)>;
+
 thread_local! {
     static HOTKEY_HANDLER: RefCell<Option<HotkeyHandler>> = const { RefCell::new(None) };
+    static TRAY_HANDLER: RefCell<Option<TrayHandler>> = const { RefCell::new(None) };
+}
+
+/// Mensaje que Windows manda a la ventana cuando se toca el ícono de la bandeja.
+const TRAY_MSG: u32 = WM_APP + 1;
+const TRAY_ID: u32 = 1;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum TrayEvent {
+    /// Clic izquierdo.
+    Open,
+    /// Clic derecho: menú.
+    Menu,
+}
+
+/// Ícono del .exe (recurso 1, lo agrega build.rs) en el tamaño chico del sistema.
+fn app_icon() -> HICON {
+    unsafe {
+        let module = GetModuleHandleW(None).ok();
+        let icon = module.and_then(|m| {
+            LoadImageW(
+                Some(m.into()),
+                PCWSTR(1 as _),
+                IMAGE_ICON,
+                GetSystemMetrics(SM_CXSMICON),
+                GetSystemMetrics(SM_CYSMICON),
+                LR_DEFAULTCOLOR,
+            )
+            .ok()
+        });
+        match icon {
+            Some(h) => HICON(h.0),
+            None => LoadIconW(None, IDI_APPLICATION).unwrap_or_default(),
+        }
+    }
+}
+
+/// Pone el ícono en la bandeja de Windows (al lado del reloj). Los clics
+/// llegan a `handler` en el hilo de la UI.
+pub fn add_tray(hwnd: Hwnd, tip: &str, handler: impl Fn(TrayEvent) + 'static) -> bool {
+    TRAY_HANDLER.with(|h| *h.borrow_mut() = Some(Box::new(handler)));
+    let mut data = NOTIFYICONDATAW {
+        cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+        hWnd: hwnd.0,
+        uID: TRAY_ID,
+        uFlags: NIF_ICON | NIF_MESSAGE | NIF_TIP,
+        uCallbackMessage: TRAY_MSG,
+        hIcon: app_icon(),
+        ..Default::default()
+    };
+    for (dst, src) in data.szTip.iter_mut().zip(tip.encode_utf16().take(127)) {
+        *dst = src;
+    }
+    unsafe { Shell_NotifyIconW(NIM_ADD, &data).as_bool() }
+}
+
+pub fn remove_tray(hwnd: Hwnd) {
+    let data = NOTIFYICONDATAW {
+        cbSize: std::mem::size_of::<NOTIFYICONDATAW>() as u32,
+        hWnd: hwnd.0,
+        uID: TRAY_ID,
+        ..Default::default()
+    };
+    unsafe {
+        let _ = Shell_NotifyIconW(NIM_DELETE, &data);
+    }
+}
+
+/// Opción del menú; `id` 0 es un separador.
+pub struct MenuItem {
+    pub id: u32,
+    pub text: String,
+    pub checked: bool,
+    pub enabled: bool,
+}
+
+/// Menú contextual en la posición del mouse. Devuelve la opción elegida.
+pub fn popup_menu(hwnd: Hwnd, items: &[MenuItem]) -> Option<u32> {
+    unsafe {
+        let menu = CreatePopupMenu().ok()?;
+        let mut texts: Vec<Vec<u16>> = Vec::with_capacity(items.len());
+        for item in items {
+            if item.id == 0 {
+                let _ = AppendMenuW(menu, MF_SEPARATOR, 0, PCWSTR::null());
+                continue;
+            }
+            let mut flags = MF_STRING;
+            if item.checked {
+                flags |= MF_CHECKED;
+            }
+            if !item.enabled {
+                flags |= MF_GRAYED;
+            }
+            texts.push(item.text.encode_utf16().chain(Some(0)).collect());
+            let text = texts.last().map_or(PCWSTR::null(), |t| PCWSTR(t.as_ptr()));
+            let _ = AppendMenuW(menu, flags, item.id as usize, text);
+        }
+        let mut pt = POINT::default();
+        let _ = GetCursorPos(&mut pt);
+        // Sin esto el menú no se cierra al hacer clic afuera.
+        let _ = SetForegroundWindow(hwnd.0);
+        let chosen = TrackPopupMenu(
+            menu,
+            TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN | TPM_RIGHTALIGN,
+            pt.x,
+            pt.y,
+            None,
+            hwnd.0,
+            None,
+        );
+        let _ = PostMessageW(Some(hwnd.0), WM_NULL, WPARAM(0), LPARAM(0));
+        let _ = DestroyMenu(menu);
+        (chosen.0 > 0).then_some(chosen.0 as u32)
+    }
 }
 
 const SUBCLASS_ID: usize = 0xA1B1;
@@ -252,6 +382,23 @@ unsafe extern "system" fn subclass_proc(
                     HOTKEY_HANDLER.with(|h| {
                         if let Some(handler) = h.borrow().as_ref() {
                             handler(key);
+                        }
+                    });
+                });
+            }
+            return LRESULT(0);
+        }
+        TRAY_MSG => {
+            let event = match (lparam.0 & 0xffff) as u32 {
+                WM_LBUTTONUP => Some(TrayEvent::Open),
+                WM_RBUTTONUP | WM_CONTEXTMENU => Some(TrayEvent::Menu),
+                _ => None,
+            };
+            if let Some(event) = event {
+                let _ = slint::invoke_from_event_loop(move || {
+                    TRAY_HANDLER.with(|h| {
+                        if let Some(handler) = h.borrow().as_ref() {
+                            handler(event);
                         }
                     });
                 });

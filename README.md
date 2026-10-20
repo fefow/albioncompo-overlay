@@ -33,6 +33,10 @@ Aparece solo cuando **Albion-Online.exe** está en primer plano, arriba al centr
 - **Con build asignada**: a la izquierda el rol y el nombre de la build, después los 8 casilleros (9 con rol de montura de batalla, con la montura primero). Pasá el mouse sobre un casillero y a los 300 ms aparece el nombre del ítem, el tier y la alternativa si la build tiene una.
 - **Botón de la party** (a la derecha): despliega quiénes están anotados, con su rol y el arma de su build, ordenados por rol. Tu fila va resaltada.
 - **Clic derecho** en cualquier parte de la tira: abre la ventana de ingreso (cambiar código, nombre, idioma o salir de la asignación).
+- **Botón flotante** con el logo de AlbionCompo, en el borde derecho del juego: sin asignación abre el ingreso; con asignación despliega la party al lado. El puntito muestra el estado (dorado esperando build, color del rol con build, ámbar si hay un problema). Clic derecho: el mismo menú que la bandeja.
+- **Ícono en la bandeja** de Windows (al lado del reloj): clic abre el ingreso; clic derecho muestra un menú para ver la party, ocultar el overlay, hacer que los clics atraviesen la tira, cambiar a píldora o salir.
+
+Si necesitás clickear en la zona donde está el overlay, tenés dos opciones: **ocultarlo** (Ctrl+Shift+H o desde el menú) o dejarlo visible pero que **los clics lo atraviesen** (Ctrl+Shift+L).
 
 Los íconos salen de `render.albiononline.com` y los nombres de los mismos archivos que usa la web; los dos quedan en caché en `%LOCALAPPDATA%\albioncompo-overlay`, así que se bajan una sola vez.
 
@@ -44,6 +48,7 @@ Consulta la asignación cada 15 s mientras esperás build, cada 3 min cuando ya 
 | Ctrl+Shift+M | Alterna entre la tira y la píldora |
 | Ctrl+Shift+P | Abre o cierra el panel de la party |
 | Ctrl+Shift+K | Abre la ventana de ingreso (código, nombre, idioma) |
+| Ctrl+Shift+H | Oculta o vuelve a mostrar todo el overlay (tira, botón y party) |
 | Ctrl+Shift+Q | Cierra el overlay |
 
 Opciones al ejecutar desde una terminal:

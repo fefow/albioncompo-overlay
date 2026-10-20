@@ -14,6 +14,7 @@ pub const ROLES: [&str; 6] = [
     "BATTLE MOUNT",
 ];
 
+#[cfg_attr(not(windows), allow(dead_code))]
 pub struct Text {
     // Ventana de ingreso.
     pub code_title: &'static str,
@@ -66,6 +67,13 @@ pub struct Text {
     pub party_summary: &'static str,
     /// "{n} anotados"
     pub members: &'static str,
+    // Menú de la bandeja y del botón flotante.
+    pub menu_open: &'static str,
+    pub menu_party: &'static str,
+    pub menu_hide: &'static str,
+    pub menu_click_through: &'static str,
+    pub menu_pill: &'static str,
+    pub menu_quit: &'static str,
 }
 
 const ES: Text = Text {
@@ -129,6 +137,12 @@ const ES: Text = Text {
     assignment: "Asignación",
     party_summary: "{n} anotados · {m} con build",
     members: "{n} anotados",
+    menu_open: "Abrir AlbionCompo (código y registro)\tCtrl+Shift+K",
+    menu_party: "Ver la party\tCtrl+Shift+P",
+    menu_hide: "Ocultar overlay\tCtrl+Shift+H",
+    menu_click_through: "Que los clics atraviesen la tira\tCtrl+Shift+L",
+    menu_pill: "Modo píldora\tCtrl+Shift+M",
+    menu_quit: "Salir\tCtrl+Shift+Q",
 };
 
 const EN: Text = Text {
@@ -184,6 +198,12 @@ const EN: Text = Text {
     assignment: "Assignment",
     party_summary: "{n} signed up · {m} with a build",
     members: "{n} signed up",
+    menu_open: "Open AlbionCompo (code and sign-up)\tCtrl+Shift+K",
+    menu_party: "Show party\tCtrl+Shift+P",
+    menu_hide: "Hide overlay\tCtrl+Shift+H",
+    menu_click_through: "Let clicks pass through the bar\tCtrl+Shift+L",
+    menu_pill: "Pill mode\tCtrl+Shift+M",
+    menu_quit: "Quit\tCtrl+Shift+Q",
 };
 
 const PT: Text = Text {
@@ -247,6 +267,12 @@ const PT: Text = Text {
     assignment: "Atribuição",
     party_summary: "{n} inscritos · {m} com build",
     members: "{n} inscritos",
+    menu_open: "Abrir AlbionCompo (código e inscrição)\tCtrl+Shift+K",
+    menu_party: "Ver a party\tCtrl+Shift+P",
+    menu_hide: "Ocultar overlay\tCtrl+Shift+H",
+    menu_click_through: "Cliques atravessam a barra\tCtrl+Shift+L",
+    menu_pill: "Modo pílula\tCtrl+Shift+M",
+    menu_quit: "Sair\tCtrl+Shift+Q",
 };
 
 pub fn text(lang: Lang) -> &'static Text {

@@ -50,6 +50,11 @@ const STRIP_PAD_LEFT: f32 = 9.0;
 /// Celda del rol a la izquierda de los ítems (ancho + separación).
 const ROLE_CELL: f32 = 88.0;
 const PARTY_WIDTH: f32 = 280.0;
+/// Botón flotante de AlbionCompo, en el borde derecho del juego.
+const LAUNCHER_SIZE: f32 = 48.0;
+const LAUNCHER_MARGIN: f32 = 10.0;
+/// Altura del botón, como fracción del alto del juego (arriba del minimapa).
+const LAUNCHER_HEIGHT: f32 = 0.32;
 /// Casilleros que ocupa la zona de mensaje cuando todavía no hay build.
 const MESSAGE_SLOTS: usize = 8;
 
@@ -177,8 +182,18 @@ struct State {
     /// Tamaño y posición aplicados (para no tocar la ventana si no cambiaron).
     last_geometry: Option<(i32, i32, i32, i32)>,
     visible: bool,
+    /// Albion en primer plano (o `--siempre`).
+    #[cfg_attr(not(windows), allow(dead_code))]
+    game_active: bool,
+    /// El jugador lo ocultó desde la bandeja o con Ctrl+Shift+H.
+    #[cfg_attr(not(windows), allow(dead_code))]
+    user_hidden: bool,
+    /// El panel de la party se abrió desde el botón flotante (va al lado de él).
+    party_by_launcher: bool,
     #[cfg_attr(not(windows), allow(dead_code))]
     alpha: u8,
+    #[cfg(windows)]
+    launcher_hwnd: Option<win::Hwnd>,
     #[cfg(windows)]
     hwnd: Option<win::Hwnd>,
     /// Área del juego cuando está en primer plano; la tira se centra arriba de ella.
@@ -192,6 +207,7 @@ struct State {
 
 struct Ctx {
     ui: OverlayWindow,
+    launcher: LauncherWindow,
     st: RefCell<State>,
     tx: Sender<Command>,
     demo: bool,
@@ -223,6 +239,7 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let ui = OverlayWindow::new()?;
     ui.set_pill_mode(args.pildora);
+    let launcher = LauncherWindow::new()?;
 
     let mut config = Config::load();
     let mut overlay = None;
@@ -240,6 +257,7 @@ fn main() -> Result<(), slint::PlatformError> {
 
     let app: App = Rc::new(Ctx {
         ui,
+        launcher,
         st: RefCell::new(State {
             config,
             pending: None,
@@ -260,7 +278,12 @@ fn main() -> Result<(), slint::PlatformError> {
             retry_after: None,
             last_geometry: None,
             visible: true,
+            game_active: args.siempre,
+            user_hidden: false,
+            party_by_launcher: false,
             alpha: args.alpha,
+            #[cfg(windows)]
+            launcher_hwnd: None,
             #[cfg(windows)]
             hwnd: None,
             #[cfg(windows)]
@@ -301,6 +324,14 @@ fn main() -> Result<(), slint::PlatformError> {
             if !failed.is_empty() {
                 eprintln!("atajos ocupados por otra app: {failed:?}");
             }
+            let weak = Rc::downgrade(&app);
+            win::add_tray(hwnd, "AlbionCompo overlay", move |event| {
+                let Some(app) = weak.upgrade() else { return };
+                match event {
+                    win::TrayEvent::Open => open_setup(&app),
+                    win::TrayEvent::Menu => show_menu(&app),
+                }
+            });
         }
         drop(winit_window);
         place_main(&app, true);
@@ -331,10 +362,54 @@ fn main() -> Result<(), slint::PlatformError> {
     })
     .expect("el bucle de eventos de Slint no está disponible");
 
-    app.ui.run()
+    // Botón flotante: sin foco como la tira, pero siempre se puede clickear.
+    app.launcher.show()?;
+    let weak = Rc::downgrade(&app);
+    slint::spawn_local(async move {
+        let Some(app) = weak.upgrade() else { return };
+        let Ok(winit_window) = app.launcher.window().winit_window().await else {
+            return;
+        };
+        #[cfg(windows)]
+        if let Some(hwnd) = win::hwnd_of(&winit_window) {
+            let alpha = app.st.borrow().alpha;
+            win::make_overlay(hwnd, alpha, false);
+            app.st.borrow_mut().launcher_hwnd = Some(hwnd);
+            let visible = app.st.borrow().visible;
+            win::set_visible(hwnd, visible);
+        }
+        drop(winit_window);
+        place_launcher(&app);
+    })
+    .expect("el bucle de eventos de Slint no está disponible");
+
+    let result = app.ui.run();
+    #[cfg(windows)]
+    if let Some(hwnd) = app.st.borrow().hwnd {
+        win::remove_tray(hwnd);
+    }
+    result
 }
 
 fn wire_callbacks(app: &App) {
+    let weak = Rc::downgrade(app);
+    app.launcher.on_clicked(move || {
+        let Some(app) = weak.upgrade() else { return };
+        let phase = app.st.borrow().phase;
+        match phase {
+            Phase::NoCode | Phase::Invalid | Phase::Expired | Phase::NotConfigured => {
+                open_setup(&app)
+            }
+            _ => toggle_party(&app, true),
+        }
+    });
+    let weak = Rc::downgrade(app);
+    app.launcher.on_right_clicked(move || {
+        if let Some(app) = weak.upgrade() {
+            show_menu(&app);
+        }
+    });
+
     let ui = &app.ui;
     let weak = Rc::downgrade(app);
     ui.on_slot_hover(move |index, entered| {
@@ -361,7 +436,7 @@ fn wire_callbacks(app: &App) {
     let weak = Rc::downgrade(app);
     ui.on_party_clicked(move || {
         if let Some(app) = weak.upgrade() {
-            toggle_party(&app);
+            toggle_party(&app, false);
         }
     });
 
@@ -565,6 +640,19 @@ fn render(app: &App) {
     ui.set_status_text(status.0.into());
     ui.set_status_color(status.1);
     ui.set_party_count(count.into());
+    let badge = {
+        let st = app.st.borrow();
+        match st.phase {
+            Phase::NoCode => None,
+            Phase::Assigned => Some(role_color(&role)),
+            Phase::Loading | Phase::Waiting => Some(Color::from_rgb_u8(0xd6, 0xad, 0x5e)),
+            _ => Some(Color::from_rgb_u8(0xff, 0xb4, 0x54)),
+        }
+    };
+    app.launcher.set_show_badge(badge.is_some());
+    if let Some(color) = badge {
+        app.launcher.set_badge_color(color);
+    }
     ui.set_message_width(MESSAGE_SLOTS as f32 * SLOT_STEP - 4.0);
     ui.set_slots(ModelRc::new(VecModel::from(slots)));
     app.st.borrow_mut().tips = tips;
@@ -1020,17 +1108,25 @@ fn reposition_party(app: &App) {
     };
     let ui = &app.ui;
     let scale = ui.window().scale_factor();
-    let pos = ui.window().position();
-    let size = ui.window().size();
     let width = (PARTY_WIDTH * scale).round() as i32;
     let gap = (GAP * scale).round() as i32;
+    if app.st.borrow().party_by_launcher {
+        // A la izquierda del botón flotante.
+        let pos = app.launcher.window().position();
+        party
+            .window()
+            .set_position(PhysicalPosition::new(pos.x - width - gap, pos.y));
+        return;
+    }
+    let pos = ui.window().position();
+    let size = ui.window().size();
     party.window().set_position(PhysicalPosition::new(
         pos.x + size.width as i32 - width,
         pos.y + size.height as i32 + gap,
     ));
 }
 
-fn toggle_party(app: &App) {
+fn toggle_party(app: &App, from_launcher: bool) {
     if app.st.borrow().party.is_some() {
         close_party(app);
         return;
@@ -1044,8 +1140,13 @@ fn toggle_party(app: &App) {
         return;
     };
     hide_tooltip(app);
-    app.st.borrow_mut().party = Some(party.clone_strong());
+    {
+        let mut st = app.st.borrow_mut();
+        st.party = Some(party.clone_strong());
+        st.party_by_launcher = from_launcher;
+    }
     app.ui.set_party_open(true);
+    app.launcher.set_active(true);
     render_party(app);
     if party.show().is_ok() {
         style_after_show(app, party.as_weak(), 7.0);
@@ -1054,6 +1155,7 @@ fn toggle_party(app: &App) {
 
 fn close_party(app: &App) {
     app.ui.set_party_open(false);
+    app.launcher.set_active(false);
     let party = app.st.borrow_mut().party.take();
     if let Some(party) = party {
         let _ = party.hide();
@@ -1347,69 +1449,198 @@ fn close_setup(app: &App) {
     }
 }
 
-/// Muestra la tira solo con Albion en primer plano y la mantiene centrada
-/// arriba del área del juego (sirve con resoluciones o ventanas modificadas).
+/// Sigue al juego: la tira y el botón se ven solo con Albion en primer plano
+/// y se mantienen dentro de su área (sirve con resoluciones o ventanas modificadas).
 #[cfg(windows)]
 fn follow_game(app: &App) {
     let game = app.st.borrow_mut().watch.albion_rect();
-    let Some(hwnd) = app.st.borrow().hwnd else {
-        return;
-    };
-    match game {
-        Some(rect) => {
-            let moved = app.st.borrow().game != Some(rect);
-            if moved {
-                app.st.borrow_mut().game = Some(rect);
-                place_main(app, false);
-            }
-            if !app.st.borrow().visible {
-                win::set_visible(hwnd, true);
-                app.st.borrow_mut().visible = true;
-                if app.st.borrow().poll_due {
-                    poll_now(app);
-                }
-            }
-        }
-        None => {
-            if app.st.borrow().visible {
-                app.ui.set_hovered_slot(-1);
-                app.st.borrow().hover_timer.stop();
-                hide_tooltip(app);
-                close_party(app);
-                win::set_visible(hwnd, false);
-                app.st.borrow_mut().visible = false;
-            }
+    if let Some(rect) = game {
+        let moved = app.st.borrow().game != Some(rect);
+        if moved {
+            app.st.borrow_mut().game = Some(rect);
+            place_main(app, false);
+            place_launcher(app);
         }
     }
+    app.st.borrow_mut().game_active = game.is_some();
+    apply_visibility(app);
+}
+
+/// Muestra u oculta la tira y el botón según el juego y lo que eligió el jugador.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn apply_visibility(app: &App) {
+    let (show, was) = {
+        let st = app.st.borrow();
+        (st.game_active && !st.user_hidden, st.visible)
+    };
+    if show == was {
+        return;
+    }
+    if !show {
+        app.ui.set_hovered_slot(-1);
+        app.st.borrow().hover_timer.stop();
+        hide_tooltip(app);
+        close_party(app);
+    }
+    #[cfg(windows)]
+    {
+        let st = app.st.borrow();
+        for hwnd in [st.hwnd, st.launcher_hwnd].into_iter().flatten() {
+            win::set_visible(hwnd, show);
+        }
+    }
+    app.st.borrow_mut().visible = show;
+    if show && app.st.borrow().poll_due {
+        poll_now(app);
+    }
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn toggle_hidden(app: &App) {
+    let hidden = !app.st.borrow().user_hidden;
+    app.st.borrow_mut().user_hidden = hidden;
+    apply_visibility(app);
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn toggle_click_through(app: &App) {
+    let ui = &app.ui;
+    let on = !ui.get_click_through();
+    ui.set_click_through(on);
+    if on {
+        ui.set_hovered_slot(-1);
+        app.st.borrow().hover_timer.stop();
+        hide_tooltip(app);
+    }
+    #[cfg(windows)]
+    if let Some(hwnd) = app.st.borrow().hwnd {
+        win::set_click_through(hwnd, on);
+    }
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn toggle_pill(app: &App) {
+    let ui = &app.ui;
+    ui.set_pill_mode(!ui.get_pill_mode());
+    ui.set_hovered_slot(-1);
+    app.st.borrow().hover_timer.stop();
+    hide_tooltip(app);
+    place_main(app, true);
+}
+
+#[cfg_attr(not(windows), allow(dead_code))]
+fn quit(app: &App) {
+    #[cfg(windows)]
+    if let Some(hwnd) = app.st.borrow().hwnd {
+        win::remove_tray(hwnd);
+    }
+    #[cfg(not(windows))]
+    let _ = app;
+    let _ = slint::quit_event_loop();
+}
+
+/// Botón flotante en el borde derecho del juego (o del monitor).
+fn place_launcher(app: &App) {
+    let window = app.launcher.window();
+    let scale = window.scale_factor();
+    let size = (LAUNCHER_SIZE * scale).round() as i32;
+    let margin = (LAUNCHER_MARGIN * scale).round() as i32;
+    let mut area = None;
+    #[cfg(windows)]
+    if let Some(g) = app.st.borrow().game {
+        area = Some((g.x, g.y, g.width, g.height));
+    }
+    if area.is_none() {
+        area = window
+            .with_winit_window(|w| w.current_monitor().or_else(|| w.primary_monitor()))
+            .flatten()
+            .map(|m| {
+                let (p, s) = (m.position(), m.size());
+                (p.x, p.y, s.width as i32, s.height as i32)
+            });
+    }
+    let Some((x, y, w, h)) = area else { return };
+    window.set_size(LogicalSize::new(LAUNCHER_SIZE, LAUNCHER_SIZE));
+    window.set_position(PhysicalPosition::new(
+        x + w - size - margin,
+        y + (h as f32 * LAUNCHER_HEIGHT) as i32,
+    ));
+    #[cfg(windows)]
+    if let Some(hwnd) = app.st.borrow().launcher_hwnd {
+        win::round_corners(hwnd, size as u32, size as u32, (size / 2) as u32);
+    }
+    reposition_party(app);
+}
+
+/// Menú de la bandeja y del clic derecho en el botón flotante.
+fn show_menu(app: &App) {
+    #[cfg(windows)]
+    {
+        const OPEN: u32 = 1;
+        const PARTY: u32 = 2;
+        const HIDE: u32 = 3;
+        const CLICK_THROUGH: u32 = 4;
+        const PILL: u32 = 5;
+        const QUIT: u32 = 6;
+        let Some(hwnd) = app.st.borrow().hwnd else {
+            return;
+        };
+        let (t, has_overlay, hidden) = {
+            let st = app.st.borrow();
+            (
+                i18n::text(st.config.lang),
+                st.overlay.is_some(),
+                st.user_hidden,
+            )
+        };
+        let item = |id: u32, text: &str, checked: bool, enabled: bool| win::MenuItem {
+            id,
+            text: text.to_owned(),
+            checked,
+            enabled,
+        };
+        let items = [
+            item(OPEN, t.menu_open, false, true),
+            item(PARTY, t.menu_party, false, has_overlay),
+            item(0, "", false, true),
+            item(HIDE, t.menu_hide, hidden, true),
+            item(
+                CLICK_THROUGH,
+                t.menu_click_through,
+                app.ui.get_click_through(),
+                true,
+            ),
+            item(PILL, t.menu_pill, app.ui.get_pill_mode(), true),
+            item(0, "", false, true),
+            item(QUIT, t.menu_quit, false, true),
+        ];
+        match win::popup_menu(hwnd, &items) {
+            Some(OPEN) => open_setup(app),
+            Some(PARTY) => {
+                if app.st.borrow().user_hidden {
+                    toggle_hidden(app);
+                }
+                toggle_party(app, true);
+            }
+            Some(HIDE) => toggle_hidden(app),
+            Some(CLICK_THROUGH) => toggle_click_through(app),
+            Some(PILL) => toggle_pill(app),
+            Some(QUIT) => quit(app),
+            _ => {}
+        }
+    }
+    #[cfg(not(windows))]
+    let _ = app;
 }
 
 #[cfg(windows)]
 fn on_hotkey(app: &App, key: win::Hotkey) {
-    let ui = &app.ui;
     match key {
-        win::Hotkey::ClickThrough => {
-            let on = !ui.get_click_through();
-            ui.set_click_through(on);
-            if on {
-                ui.set_hovered_slot(-1);
-                app.st.borrow().hover_timer.stop();
-                hide_tooltip(app);
-            }
-            if let Some(hwnd) = app.st.borrow().hwnd {
-                win::set_click_through(hwnd, on);
-            }
-        }
-        win::Hotkey::PillMode => {
-            ui.set_pill_mode(!ui.get_pill_mode());
-            ui.set_hovered_slot(-1);
-            app.st.borrow().hover_timer.stop();
-            hide_tooltip(app);
-            place_main(app, true);
-        }
-        win::Hotkey::Party => toggle_party(app),
+        win::Hotkey::ClickThrough => toggle_click_through(app),
+        win::Hotkey::PillMode => toggle_pill(app),
+        win::Hotkey::Party => toggle_party(app, false),
         win::Hotkey::Setup => open_setup(app),
-        win::Hotkey::Quit => {
-            let _ = slint::quit_event_loop();
-        }
+        win::Hotkey::Hide => toggle_hidden(app),
+        win::Hotkey::Quit => quit(app),
     }
 }

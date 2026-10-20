@@ -1058,3 +1058,65 @@ export component SetupWindow inherits Window {
         }
     }
 }
+
+// Botón flotante con el logo de AlbionCompo, en el borde derecho del juego.
+// Sin asignación abre el ingreso; con asignación despliega la party.
+// Clic derecho: el mismo menú que el ícono de la bandeja.
+export component LauncherWindow inherits Window {
+    in property <bool> active;
+    in property <bool> show-badge;
+    in property <color> badge-color: Palette.gold;
+    callback clicked();
+    callback right-clicked();
+
+    title: "AlbionCompo";
+    no-frame: true;
+    always-on-top: true;
+    background: Palette.bg;
+    width: 48px;
+    height: 48px;
+
+    property <bool> shown;
+    init => { shown = true; }
+
+    Rectangle {
+        border-radius: 24px;
+        border-width: 2px;
+        border-color: touch.has-hover || root.active ? Palette.gold-bright : Palette.frame;
+        background: touch.has-hover ? Palette.slot-hover : Palette.bg;
+        animate border-color, background { duration: 150ms; }
+    }
+
+    Image {
+        x: 4px;
+        y: 4px;
+        width: 40px;
+        height: 40px;
+        source: @image-url("../assets/brand-mark-96.png");
+        image-fit: contain;
+        opacity: root.shown ? (touch.has-hover || root.active ? 1.0 : 0.85) : 0;
+        animate opacity { duration: 220ms; easing: ease-out; }
+    }
+
+    // Estado: dorado esperando build, color del rol con build, ámbar con problemas.
+    if root.show-badge: Rectangle {
+        x: 33px;
+        y: 5px;
+        width: 11px;
+        height: 11px;
+        border-radius: 5.5px;
+        border-width: 2px;
+        border-color: Palette.bg;
+        background: root.badge-color;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                root.right-clicked();
+            }
+        }
+    }
+}

@@ -13,10 +13,12 @@ ureq = { version = "3.4.2", default-features = false, features = ["rustls", "gzi
 png = "0.18.1"
 
 [target.'cfg(windows)'.dependencies]
-windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading", "Win32_Globalization"] }
+windows = { version = "0.62.2", features = ["Win32_Foundation", "Win32_Graphics_Gdi", "Win32_UI_WindowsAndMessaging", "Win32_UI_Shell", "Win32_UI_Input_KeyboardAndMouse", "Win32_System_Threading", "Win32_Globalization", "Win32_System_LibraryLoader"] }
 
 [build-dependencies]
 slint-build = "=1.18.1"
+# Ícono del .exe (solo al compilar para Windows).
+winresource = "0.1"
 
 # Binario chico y sin código de unwinding; la RAM que importa es la de ejecución.
 [profile.release]
