@@ -17,12 +17,17 @@ pub struct Entry {
     pub role: Option<String>,
     #[serde(default)]
     pub build_id: Option<String>,
+    /// Índice de la party (desde 0). Las asignaciones de una sola party no lo mandan.
+    #[serde(default)]
+    pub party: u8,
 }
 
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Build {
     #[serde(default)]
     pub id: Option<String>,
+    #[serde(default)]
+    pub party: Option<u8>,
     #[serde(default)]
     pub name: Option<String>,
     #[serde(default)]
@@ -55,6 +60,12 @@ pub struct Named {
     pub name: Option<String>,
 }
 
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct PartyInfo {
+    #[serde(default)]
+    pub label: Option<String>,
+}
+
 /// Respuesta de `get_overlay`. Según `status` vienen unos campos u otros.
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Overlay {
@@ -67,6 +78,10 @@ pub struct Overlay {
     pub assignment: Named,
     #[serde(default)]
     pub composition: Named,
+    #[serde(default)]
+    pub caller: Option<String>,
+    #[serde(default)]
+    pub parties: Vec<PartyInfo>,
     #[serde(default)]
     pub entries: Vec<Entry>,
     #[serde(default)]

@@ -486,9 +486,40 @@ fn my_entry<'a>(overlay: &'a Overlay, name: &str) -> Option<&'a api::Entry> {
         .find(|e| normalize_name(&e.name) == me)
 }
 
+/// La build se busca en la composición de la party de la entry (la misma
+/// composición puede estar en dos parties, así que el id solo no alcanza).
 fn build_of<'a>(overlay: &'a Overlay, entry: &api::Entry) -> Option<&'a api::Build> {
     let id = entry.build_id.as_deref()?;
-    overlay.builds.iter().find(|b| b.id.as_deref() == Some(id))
+    overlay
+        .builds
+        .iter()
+        .find(|b| b.id.as_deref() == Some(id) && b.party.is_none_or(|p| p == entry.party))
+}
+
+/// Party de quien usa el overlay, solo si la asignación tiene varias y ya le
+/// asignaron build (antes de eso está en la lista general).
+fn my_party(overlay: &Overlay, name: &str) -> Option<u8> {
+    if overlay.parties.len() < 2 {
+        return None;
+    }
+    my_entry(overlay, name)
+        .filter(|e| build_of(overlay, e).is_some())
+        .map(|e| e.party)
+}
+
+/// "PARTY 2 · MAIN" para mostrar en la tira y en el panel.
+fn party_title(overlay: &Overlay, lang: Lang, party: u8) -> String {
+    let base = format!("{} {}", i18n::text(lang).party, party + 1);
+    match overlay
+        .parties
+        .get(party as usize)
+        .and_then(|p| p.label.as_deref())
+        .map(str::trim)
+        .filter(|l| !l.is_empty())
+    {
+        Some(label) => format!("{base} · {label}"),
+        None => base,
+    }
 }
 
 fn phase_for(overlay: &Overlay, name: &str) -> Phase {
@@ -634,6 +665,12 @@ fn render(app: &App) {
             .filter(|_| show_build)
             .and_then(|b| b.name.clone())
             .unwrap_or_default();
+        // Con varias parties la celda dice en cuál estás: "P2 · Sagrado ZvZ".
+        let build_name = match overlay.and_then(|o| my_party(o, &st.config.name)) {
+            Some(p) if show_build && build_name.is_empty() => format!("P{}", p + 1),
+            Some(p) if show_build => format!("P{} · {build_name}", p + 1),
+            _ => build_name,
+        };
         (slots, tips, role, build_name, status, count, lang)
     };
 
@@ -1065,9 +1102,12 @@ fn render_party(app: &App) {
         let lang = st.config.lang;
         let t = i18n::text(lang);
         let me = normalize_name(&st.config.name);
+        // Con varias parties se ve solo la tuya (cuando ya tenés build).
+        let party = my_party(overlay, &st.config.name);
         let mut rows: Vec<(usize, String, Member)> = overlay
             .entries
             .iter()
+            .filter(|e| party.is_none_or(|p| e.party == p && e.build_id.is_some()))
             .map(|e| {
                 let build = build_of(overlay, e);
                 let role = display_role(build, Some(e));
@@ -1092,17 +1132,24 @@ fn render_party(app: &App) {
             .collect();
         rows.sort_by(|a, b| (a.0, &a.1).cmp(&(b.0, &b.1)));
         let assigned = rows.iter().filter(|r| r.2.assigned).count();
-        let heading = overlay
-            .assignment
-            .name
-            .clone()
-            .or_else(|| overlay.composition.name.clone())
-            .unwrap_or_else(|| t.assignment.into())
-            .to_uppercase();
-        let subheading = t
+        let heading = match party {
+            Some(p) => party_title(overlay, lang, p),
+            None => overlay
+                .assignment
+                .name
+                .clone()
+                .or_else(|| overlay.composition.name.clone())
+                .unwrap_or_else(|| t.assignment.into()),
+        }
+        .to_uppercase();
+        let summary = t
             .party_summary
             .replace("{n}", &rows.len().to_string())
             .replace("{m}", &assigned.to_string());
+        let subheading = match overlay.caller.as_deref().map(str::trim) {
+            Some(caller) if !caller.is_empty() => format!("{}: {caller} · {summary}", t.caller),
+            _ => summary,
+        };
         let members: Vec<Member> = rows.into_iter().map(|r| r.2).collect();
         (heading, subheading, members)
     };
@@ -1441,6 +1488,7 @@ fn submit_setup(app: &App) {
                 name,
                 role: (!role.is_empty()).then_some(role),
                 build_id: None,
+                party: 0,
             });
         }
         on_event(app, Event::Joined(Ok(overlay)));
@@ -1744,5 +1792,40 @@ fn on_hotkey(app: &App, key: win::Hotkey) {
         win::Hotkey::Setup => open_setup(app),
         win::Hotkey::Hide => toggle_hidden(app),
         win::Hotkey::Quit => quit(app),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn la_build_se_busca_en_la_party_de_la_entry() {
+        let mut overlay = data::demo_overlay(false);
+        let mut otra = overlay.builds[1].clone();
+        otra.party = Some(1);
+        otra.weapon = Some("T8_2H_HAMMER".into());
+        overlay.builds[1].party = Some(0);
+        overlay.builds.push(otra);
+        let entry = |party| api::Entry {
+            name: "x".into(),
+            role: None,
+            build_id: Some("b2".into()),
+            party,
+        };
+        let weapon = |party| build_of(&overlay, &entry(party)).and_then(|b| b.weapon.clone());
+        assert_eq!(weapon(0).as_deref(), Some("T8_MAIN_MACE@1"));
+        assert_eq!(weapon(1).as_deref(), Some("T8_2H_HAMMER"));
+        assert_eq!(weapon(2), None);
+    }
+
+    #[test]
+    fn party_solo_con_varias_y_build_asignada() {
+        let mut overlay = data::demo_overlay(false);
+        assert_eq!(my_party(&overlay, "SaidST"), Some(1));
+        assert_eq!(my_party(&overlay, "sitzz"), None);
+        assert_eq!(party_title(&overlay, Lang::Es, 0), "Party 1 · Main");
+        overlay.parties.truncate(1);
+        assert_eq!(my_party(&overlay, "SaidST"), None);
     }
 }

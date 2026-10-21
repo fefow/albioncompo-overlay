@@ -65,6 +65,8 @@ pub struct Text {
     pub assignment: &'static str,
     /// "{n} anotados · {m} con build"
     pub party_summary: &'static str,
+    pub party: &'static str,
+    pub caller: &'static str,
     /// "{n} anotados"
     pub members: &'static str,
     // Menú de la bandeja y del botón flotante.
@@ -138,6 +140,8 @@ const ES: Text = Text {
     alternative: "Alternativa: ",
     assignment: "Asignación",
     party_summary: "{n} anotados · {m} con build",
+    party: "Party",
+    caller: "Caller",
     members: "{n} anotados",
     menu_open: "Abrir AlbionCompo (código y registro)\tCtrl+Shift+K",
     menu_expand: "Mostrar build y party",
@@ -201,6 +205,8 @@ const EN: Text = Text {
     alternative: "Alternative: ",
     assignment: "Assignment",
     party_summary: "{n} signed up · {m} with a build",
+    party: "Party",
+    caller: "Caller",
     members: "{n} signed up",
     menu_open: "Open AlbionCompo (code and sign-up)\tCtrl+Shift+K",
     menu_expand: "Show build and party",
@@ -272,6 +278,8 @@ const PT: Text = Text {
     alternative: "Alternativa: ",
     assignment: "Atribuição",
     party_summary: "{n} inscritos · {m} com build",
+    party: "Party",
+    caller: "Caller",
     members: "{n} inscritos",
     menu_open: "Abrir AlbionCompo (código e inscrição)\tCtrl+Shift+K",
     menu_expand: "Mostrar build e party",

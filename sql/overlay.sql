@@ -13,6 +13,10 @@
 --   join_overlay: ok | name_taken | full | bad_name | expired | invalid | rate_limited
 --
 -- Idempotente: se puede volver a ejecutar entero sin romper nada.
+--
+-- Varias parties: requiere supabase/assignment-parties.sql de la web (columnas
+-- caller_name, parties y party). Cada build y cada entry traen su "party"
+-- (índice desde 0) y "parties" trae nombre y composición de cada una.
 
 -- 1. Registro de intentos, para frenar a quien pruebe códigos al azar
 --    (kind = 'fail') o llene una asignación de nombres basura (kind = 'join').
@@ -115,7 +119,7 @@ as $$
 declare
   v_ip      text := public.overlay_client_ip();
   v_assign  public.composition_assignments;
-  v_comp    record;
+  v_parties jsonb;
   v_payload jsonb;
   v_rev     text;
 begin
@@ -141,31 +145,50 @@ begin
     return jsonb_build_object('status', 'expired', 'expires_at', v_assign.expires_at);
   end if;
 
-  select c.name, c.data
-    into v_comp
-    from public.compositions c
-   where c.share_id = v_assign.share_id;
+  -- Sin "parties" la asignación es una sola party con su composición.
+  v_parties := case
+    when jsonb_typeof(v_assign.parties) = 'array' and jsonb_array_length(v_assign.parties) > 0
+      then v_assign.parties
+    else jsonb_build_array(jsonb_build_object('share_id', v_assign.share_id))
+  end;
 
-  if not found then
+  if not exists (select 1 from public.compositions c where c.share_id = v_assign.share_id) then
     return jsonb_build_object('status', 'invalid');
   end if;
 
   -- Solo lo que dibuja el overlay: nada de owner_id, notas, hashes ni ids internos.
-  v_payload := jsonb_build_object(
+  with party_list as (
+    select (p.ord - 1)::int as party,
+           nullif(btrim(p.elem ->> 'label'), '') as label,
+           c.name,
+           case when jsonb_typeof(c.data::jsonb) = 'array' then c.data::jsonb else '[]'::jsonb end as data
+      from jsonb_array_elements(v_parties) with ordinality as p(elem, ord)
+      left join public.compositions c on c.share_id = p.elem ->> 'share_id'
+  )
+  select jsonb_build_object(
     'assignment', jsonb_build_object('name', v_assign.assignment_name),
-    'composition', jsonb_build_object('name', v_comp.name),
+    'caller', nullif(btrim(coalesce(v_assign.caller_name, '')), ''),
+    'composition', jsonb_build_object('name', (select name from party_list where party = 0)),
+    'parties', (
+      select jsonb_agg(jsonb_build_object('label', label, 'composition', name) order by party)
+        from party_list
+    ),
     'entries', coalesce((
       select jsonb_agg(jsonb_build_object(
                'name', e.name,
                'role', e.role,
-               'build_id', e.build_id
+               'build_id', e.build_id,
+               'party', e.party
              ) order by e.name_norm)
         from public.composition_assignment_entries e
        where e.assignment_id = v_assign.id
     ), '[]'::jsonb),
+    -- Las builds de todas las parties en orden; un overlay viejo busca solo
+    -- por id y encuentra la primera, que con la misma composición es igual.
     'builds', coalesce((
       select jsonb_agg(jsonb_build_object(
                'id', b ->> '_id',
+               'party', pl.party,
                'name', b ->> 'name',
                'role', b ->> 'role',
                'weapon', b ->> 'weapon',
@@ -178,12 +201,12 @@ begin
                'food', b ->> 'food',
                'mount', b ->> 'mount',
                'variants', coalesce(b -> 'variants', '{}'::jsonb)
-             ) order by ord)
-        from jsonb_array_elements(
-               case when jsonb_typeof(v_comp.data) = 'array' then v_comp.data else '[]'::jsonb end
-             ) with ordinality as t(b, ord)
+             ) order by pl.party, ord)
+        from party_list pl,
+             jsonb_array_elements(pl.data) with ordinality as t(b, ord)
     ), '[]'::jsonb)
-  );
+  )
+    into v_payload;
 
   v_rev := md5(v_payload::text);
 

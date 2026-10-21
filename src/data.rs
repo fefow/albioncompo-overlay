@@ -224,10 +224,11 @@ pub fn demo_overlay(con_montura: bool) -> api::Overlay {
     healer
         .variants
         .insert("weapon".into(), "T8_2H_HOLYSTAFF@1".into());
-    let entry = |name: &str, role: &str, build: Option<&str>| api::Entry {
+    let entry = |name: &str, role: &str, build: Option<&str>, party: u8| api::Entry {
         name: name.into(),
         role: Some(role.into()),
         build_id: build.map(str::to_owned),
+        party,
     };
     api::Overlay {
         status: "ok".into(),
@@ -239,12 +240,20 @@ pub fn demo_overlay(con_montura: bool) -> api::Overlay {
         composition: api::Named {
             name: Some("Compo de prueba".into()),
         },
+        caller: Some("RKFigue".into()),
+        // Dos parties con la misma composición.
+        parties: vec![
+            api::PartyInfo {
+                label: Some("Main".into()),
+            },
+            api::PartyInfo { label: None },
+        ],
         entries: vec![
-            entry("Dusius", "HEALER", Some("b1")),
-            entry("RKFigue", "TANK", Some("b2")),
-            entry("MegaPikachu", "SUPPORT", Some("b3")),
-            entry("SaidST", "RANGE DPS", Some("b4")),
-            entry("sitzz", "MELEE DPS", None),
+            entry("Dusius", "HEALER", Some("b1"), 0),
+            entry("RKFigue", "TANK", Some("b2"), 0),
+            entry("MegaPikachu", "SUPPORT", Some("b3"), 0),
+            entry("SaidST", "RANGE DPS", Some("b4"), 1),
+            entry("sitzz", "MELEE DPS", None, 0),
         ],
         builds: vec![
             healer,
