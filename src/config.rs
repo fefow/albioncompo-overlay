@@ -113,6 +113,12 @@ pub struct Config {
     pub name: String,
     pub role: String,
     pub lang: Lang,
+    /// Ya eligió idioma alguna vez (si no, el ingreso arranca por ahí).
+    pub lang_chosen: bool,
+    /// La tira con la build queda siempre visible (si no, se despliega desde el botón).
+    pub pin_strip: bool,
+    /// El panel de la party queda siempre visible.
+    pub pin_party: bool,
 }
 
 impl Config {
@@ -124,9 +130,10 @@ impl Config {
     pub fn load() -> Config {
         let text = std::fs::read_to_string(Self::path()).unwrap_or_default();
         let mut config = Self::parse(&text);
-        if !text.lines().any(|l| l.trim_start().starts_with("lang=")) {
-            config.lang = crate::i18n::system_lang();
+        if config.lang_chosen {
+            return config;
         }
+        config.lang = crate::i18n::system_lang();
         config
     }
 
@@ -153,7 +160,12 @@ impl Config {
                 "code" => config.code = value,
                 "name" => config.name = value,
                 "role" => config.role = value,
-                "lang" => config.lang = Lang::from_code(&value),
+                "lang" => {
+                    config.lang = Lang::from_code(&value);
+                    config.lang_chosen = true;
+                }
+                "pin_strip" => config.pin_strip = value == "1",
+                "pin_party" => config.pin_party = value == "1",
                 _ => {}
             }
         }
@@ -164,11 +176,13 @@ impl Config {
         // Los saltos de línea romperían el formato; no deberían aparecer nunca.
         let clean = |s: &str| s.replace(['\r', '\n'], " ");
         format!(
-            "code={}\nname={}\nrole={}\nlang={}\n",
+            "code={}\nname={}\nrole={}\nlang={}\npin_strip={}\npin_party={}\n",
             clean(&self.code),
             clean(&self.name),
             clean(&self.role),
-            self.lang.code()
+            self.lang.code(),
+            u8::from(self.pin_strip),
+            u8::from(self.pin_party),
         )
     }
 }
@@ -202,6 +216,9 @@ mod tests {
             name: "Dusius".into(),
             role: "HEALER".into(),
             lang: Lang::Pt,
+            lang_chosen: true,
+            pin_strip: true,
+            pin_party: false,
         };
         assert_eq!(Config::parse(&config.serialize()), config);
     }

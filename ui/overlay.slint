@@ -741,7 +741,7 @@ component Button inherits Rectangle {
 // si existe, el registro (nombre y roles). Es una ventana normal (con foco)
 // porque hay que escribir; se usa fuera de las peleas.
 export component SetupWindow inherits Window {
-    // 0: código, 1: registro.
+    // 0: código, 1: registro, 2: idioma (solo la primera vez).
     in-out property <int> step: 0;
     in-out property <string> code;
     in-out property <string> name;
@@ -762,6 +762,7 @@ export component SetupWindow inherits Window {
     callback leave();
     callback close-clicked();
     callback lang-changed(int);
+    callback lang-picked(int);
 
     public function focus-code() {
         code-field.focus-input();
@@ -831,6 +832,7 @@ export component SetupWindow inherits Window {
 
             for lang[i] in ["ES", "EN", "PT"]: Chip {
                 text: lang;
+                visible: root.step != 2;
                 selected: root.lang-index == i;
                 clicked => {
                     if root.lang-index != i {
@@ -841,9 +843,85 @@ export component SetupWindow inherits Window {
             }
         }
 
+        // Primera vez: idioma. Los tres textos van en su idioma.
+        Rectangle {
+            x: root.step == 2 ? 0 : -60px;
+            opacity: root.step == 2 ? 1 : 0;
+            visible: self.opacity > 0.01;
+            animate x { duration: 240ms; easing: ease-out; }
+            animate opacity { duration: 200ms; }
+
+            VerticalLayout {
+                padding-left: 22px;
+                padding-right: 22px;
+                padding-top: 74px;
+                padding-bottom: 20px;
+                spacing: 10px;
+
+                Text {
+                    text: "Elegí tu idioma";
+                    color: Palette.gold-bright;
+                    font-size: 22px;
+                    font-weight: 600;
+                }
+
+                Text {
+                    text: "Choose your language · Escolha seu idioma";
+                    color: Palette.muted;
+                    font-size: 12px;
+                }
+
+                Rectangle {
+                    height: 8px;
+                }
+
+                for lang[i] in [
+                    { name: "Español", detail: "Interfaz y nombres de ítems en español" },
+                    { name: "English", detail: "Interface and item names in English" },
+                    { name: "Português", detail: "Interface e nomes de itens em português" },
+                ]: Rectangle {
+                    height: 58px;
+                    border-radius: 5px;
+                    border-width: 1px;
+                    border-color: lang-touch.has-hover || root.lang-index == i ? Palette.gold : Palette.border;
+                    background: lang-touch.has-hover ? Palette.slot-hover : Palette.slot-bg;
+                    animate border-color, background { duration: 140ms; }
+
+                    VerticalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        alignment: center;
+                        spacing: 2px;
+
+                        Text {
+                            text: lang.name;
+                            color: lang-touch.has-hover ? Palette.gold-bright : Palette.text;
+                            font-size: 15px;
+                            font-weight: 600;
+                        }
+
+                        Text {
+                            text: lang.detail;
+                            color: Palette.muted;
+                            font-size: 11px;
+                        }
+                    }
+
+                    lang-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.lang-picked(i); }
+                    }
+                }
+
+                Rectangle {
+                    vertical-stretch: 1;
+                }
+            }
+        }
+
         // Paso 1: código.
         Rectangle {
-            x: root.step == 0 ? 0 : -60px;
+            x: root.step == 0 ? 0 : (root.step == 2 ? 60px : -60px);
             opacity: root.step == 0 ? 1 : 0;
             visible: self.opacity > 0.01;
             animate x { duration: 240ms; easing: ease-out; }
@@ -1064,6 +1142,8 @@ export component SetupWindow inherits Window {
 // Clic derecho: el mismo menú que el ícono de la bandeja.
 export component LauncherWindow inherits Window {
     in property <bool> active;
+    // Hay una build nueva que todavía no se vio: el borde late.
+    in property <bool> attention;
     in property <bool> show-badge;
     in property <color> badge-color: Palette.gold;
     callback clicked();
@@ -1085,6 +1165,13 @@ export component LauncherWindow inherits Window {
         border-color: touch.has-hover || root.active ? Palette.gold-bright : Palette.frame;
         background: touch.has-hover ? Palette.slot-hover : Palette.bg;
         animate border-color, background { duration: 150ms; }
+    }
+
+    if root.attention: Rectangle {
+        border-radius: 24px;
+        border-width: 3px;
+        border-color: Palette.gold-bright;
+        opacity: 0.35 + 0.65 * (0.5 + 0.5 * sin((animation-tick() / 1ms) * 0.3deg));
     }
 
     Image {

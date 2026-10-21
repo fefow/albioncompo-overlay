@@ -16,7 +16,7 @@ Es una ventana aparte, siempre encima y sin foco. No inyecta nada en el juego, n
 
 ### Primer uso
 
-Al abrirlo por primera vez aparece la ventana de ingreso, en dos pasos:
+Al abrirlo por primera vez aparece la ventana de ingreso. Lo primero es elegir el idioma (ES, EN o PT: interfaz y nombres de ítems) y después, en dos pasos:
 
 1. **Código**: el de 6 caracteres que genera quien arma la asignación en la web. Si no existe o venció, lo avisa ahí mismo.
 2. **Registro**: muestra la asignación encontrada y pide **tu nombre en el juego** y los **roles que podés jugar** (podés elegir varios). Si ya te anotaron desde la web con ese nombre, solo te reconoce.
@@ -33,7 +33,7 @@ Aparece solo cuando **Albion-Online.exe** está en primer plano, arriba al centr
 - **Con build asignada**: a la izquierda el rol y el nombre de la build, después los 8 casilleros (9 con rol de montura de batalla, con la montura primero). Pasá el mouse sobre un casillero y a los 300 ms aparece el nombre del ítem, el tier y la alternativa si la build tiene una.
 - **Botón de la party** (a la derecha): despliega quiénes están anotados, con su rol y el arma de su build, ordenados por rol. Tu fila va resaltada.
 - **Clic derecho** en cualquier parte de la tira: abre la ventana de ingreso (cambiar código, nombre, idioma o salir de la asignación).
-- **Botón flotante** con el logo de AlbionCompo, en el borde derecho del juego: sin asignación abre el ingreso; con asignación despliega la party al lado. El puntito muestra el estado (dorado esperando build, color del rol con build, ámbar si hay un problema). Clic derecho: el mismo menú que la bandeja.
+- **Por defecto todo queda minimizado en el botón flotante** con el logo de AlbionCompo, en el borde derecho del juego. Sin asignación, el botón abre el ingreso; con asignación, despliega la build arriba y la party al lado, y otro clic los vuelve a minimizar. Cuando el líder te asigna una build nueva, el borde del botón late hasta que lo tocás. Desde el menú podés **fijar** la build o la party para que queden siempre visibles (se recuerda para la próxima). El puntito muestra el estado (dorado esperando build, color del rol con build, ámbar si hay un problema). Clic derecho: el mismo menú que la bandeja.
 - **Ícono en la bandeja** de Windows (al lado del reloj): clic abre el ingreso; clic derecho muestra un menú para ver la party, ocultar el overlay, hacer que los clics atraviesen la tira, cambiar a píldora o salir.
 
 Si necesitás clickear en la zona donde está el overlay, tenés dos opciones: **ocultarlo** (Ctrl+Shift+H o desde el menú) o dejarlo visible pero que **los clics lo atraviesen** (Ctrl+Shift+L).

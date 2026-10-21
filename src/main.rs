@@ -190,6 +190,13 @@ struct State {
     user_hidden: bool,
     /// El panel de la party se abrió desde el botón flotante (va al lado de él).
     party_by_launcher: bool,
+    /// Build y party desplegadas desde el botón (por defecto todo queda
+    /// minimizado en el botón, salvo lo que el jugador fijó).
+    expanded: bool,
+    /// La tira se está mostrando (None hasta la primera vez).
+    strip_shown: Option<bool>,
+    /// Build asignada que ya vio el jugador; si cambia, el botón llama la atención.
+    seen_build: Option<String>,
     #[cfg_attr(not(windows), allow(dead_code))]
     alpha: u8,
     #[cfg(windows)]
@@ -281,6 +288,9 @@ fn main() -> Result<(), slint::PlatformError> {
             game_active: args.siempre,
             user_hidden: false,
             party_by_launcher: false,
+            expanded: false,
+            strip_shown: None,
+            seen_build: None,
             alpha: args.alpha,
             #[cfg(windows)]
             launcher_hwnd: None,
@@ -353,11 +363,14 @@ fn main() -> Result<(), slint::PlatformError> {
         #[cfg(not(windows))]
         let _ = siempre;
 
-        let phase = app.st.borrow().phase;
-        match phase {
-            Phase::Loading => poll_now(&app),
-            Phase::NoCode => open_setup(&app),
-            _ => {}
+        sync_views(&app);
+        if app.st.borrow().phase == Phase::Loading {
+            poll_now(&app);
+        }
+        // Por defecto arranca minimizado en el botón; solo la primera vez
+        // abre el ingreso para elegir idioma y poner el código.
+        if !app.st.borrow().config.lang_chosen {
+            open_setup(&app);
         }
     })
     .expect("el bucle de eventos de Slint no está disponible");
@@ -400,7 +413,7 @@ fn wire_callbacks(app: &App) {
             Phase::NoCode | Phase::Invalid | Phase::Expired | Phase::NotConfigured => {
                 open_setup(&app)
             }
-            _ => toggle_party(&app, true),
+            _ => toggle_expanded(&app),
         }
     });
     let weak = Rc::downgrade(app);
@@ -650,6 +663,19 @@ fn render(app: &App) {
         }
     };
     app.launcher.set_show_badge(badge.is_some());
+    // Build nueva o cambiada: el botón avisa si está todo minimizado.
+    let assigned = {
+        let st = app.st.borrow();
+        let o = st.overlay.as_ref();
+        o.and_then(|o| my_entry(o, &st.config.name))
+            .and_then(|e| e.build_id.clone())
+            .filter(|_| st.phase == Phase::Assigned)
+    };
+    if assigned.is_some() && assigned != app.st.borrow().seen_build {
+        let shown = app.st.borrow().strip_shown == Some(true);
+        app.st.borrow_mut().seen_build = assigned;
+        app.launcher.set_attention(!shown);
+    }
     if let Some(color) = badge {
         app.launcher.set_badge_color(color);
     }
@@ -783,6 +809,7 @@ fn on_event(app: &App, event: Event) {
                 }
             }
             render(app);
+            sync_views(app);
             schedule_poll(app);
         }
         Event::Joined(Ok(overlay)) => {
@@ -804,6 +831,7 @@ fn on_event(app: &App, event: Event) {
             }
             close_setup(app);
             render(app);
+            sync_views(app);
             schedule_poll(app);
         }
         Event::Checked(code, result) => on_checked(app, code, result),
@@ -878,7 +906,11 @@ fn place_main(app: &App, force: bool) {
             origin = Some((pos.x + (msize.width as i32 - width) / 2, pos.y + margin));
         }
     }
-    let (x, y) = origin.unwrap_or((0, margin));
+    let (mut x, mut y) = origin.unwrap_or((0, margin));
+    // Minimizada en el botón: la ventana queda fuera de la pantalla.
+    if app.st.borrow().strip_shown != Some(true) {
+        (x, y) = (-32000, -32000);
+    }
 
     let geometry = (x, y, width, height);
     if !force && app.st.borrow().last_geometry == Some(geometry) {
@@ -1227,9 +1259,12 @@ fn open_setup(app: &App) {
         if app.demo {
             setup.set_info_text(i18n::text(c.lang).demo.into());
         }
-        // Con la asignación ya cargada se abre directo en el registro.
+        // Con la asignación ya cargada se abre directo en el registro; la
+        // primera vez, en la elección de idioma.
         let loaded = st.overlay.clone().filter(|_| !c.code.is_empty());
-        if let Some(overlay) = loaded {
+        if !c.lang_chosen {
+            setup.set_step(2);
+        } else if let Some(overlay) = loaded {
             setup.set_joined(my_entry(&overlay, &c.name).is_some());
             fill_assignment_card(&setup, &overlay, c.lang);
             setup.set_step(1);
@@ -1277,6 +1312,16 @@ fn open_setup(app: &App) {
         render(&app);
     });
     let weak = Rc::downgrade(app);
+    setup.on_lang_picked(move |index| {
+        let Some(app) = weak.upgrade() else { return };
+        set_lang(&app, Lang::from_index(index));
+        if let Some(setup) = current_setup(&app) {
+            setup.set_lang_index(index);
+            setup.set_step(0);
+            setup.invoke_focus_code();
+        }
+    });
+    let weak = Rc::downgrade(app);
     setup.on_lang_changed(move |index| {
         if let Some(app) = weak.upgrade() {
             set_lang(&app, Lang::from_index(index));
@@ -1297,10 +1342,10 @@ fn open_setup(app: &App) {
     });
 
     if setup.show().is_ok() {
-        if setup.get_step() == 0 {
-            setup.invoke_focus_code();
-        } else {
-            setup.invoke_focus_name();
+        match setup.get_step() {
+            0 => setup.invoke_focus_code(),
+            1 => setup.invoke_focus_name(),
+            _ => {}
         }
         app.st.borrow_mut().setup = Some(setup);
     }
@@ -1382,6 +1427,7 @@ fn submit_setup(app: &App) {
         name: name.clone(),
         role: role.clone(),
         lang,
+        ..app.st.borrow().config.clone()
     };
     setup.set_name(name.clone().into());
     setup.set_busy(true);
@@ -1407,10 +1453,11 @@ fn submit_setup(app: &App) {
 fn set_lang(app: &App, lang: Lang) {
     {
         let mut st = app.st.borrow_mut();
-        if st.config.lang == lang {
+        if st.config.lang == lang && st.config.lang_chosen {
             return;
         }
         st.config.lang = lang;
+        st.config.lang_chosen = true;
         st.names.clear();
         st.requested.clear();
         if let Some(pending) = st.pending.as_mut() {
@@ -1463,43 +1510,93 @@ fn follow_game(app: &App) {
         }
     }
     app.st.borrow_mut().game_active = game.is_some();
-    apply_visibility(app);
+    sync_views(app);
 }
 
-/// Muestra u oculta la tira y el botón según el juego y lo que eligió el jugador.
-#[cfg_attr(not(windows), allow(dead_code))]
-fn apply_visibility(app: &App) {
-    let (show, was) = {
+/// Decide qué se ve: el botón con Albion en primer plano (salvo que el jugador
+/// oculte todo) y la tira y la party solo si están fijadas o desplegadas.
+fn sync_views(app: &App) {
+    let show = {
         let st = app.st.borrow();
-        (st.game_active && !st.user_hidden, st.visible)
+        st.game_active && !st.user_hidden
     };
-    if show == was {
-        return;
+    if show != app.st.borrow().visible {
+        app.st.borrow_mut().visible = show;
+        #[cfg(windows)]
+        if let Some(hwnd) = app.st.borrow().launcher_hwnd {
+            win::set_visible(hwnd, show);
+        }
+        if show && app.st.borrow().poll_due {
+            poll_now(app);
+        }
     }
-    if !show {
+
+    let (strip, party_wanted) = {
+        let st = app.st.borrow();
+        let open = st.expanded || st.config.pin_strip;
+        let party = st.overlay.is_some() && (st.expanded || st.config.pin_party);
+        (show && open, show && party)
+    };
+    if !strip {
         app.ui.set_hovered_slot(-1);
         app.st.borrow().hover_timer.stop();
         hide_tooltip(app);
+    }
+    if app.st.borrow().strip_shown != Some(strip) {
+        app.st.borrow_mut().strip_shown = Some(strip);
+        #[cfg(windows)]
+        if let Some(hwnd) = app.st.borrow().hwnd {
+            win::set_visible(hwnd, strip);
+        }
+        place_main(app, true);
+    }
+
+    let (has_party, by_launcher) = {
+        let st = app.st.borrow();
+        (st.party.is_some(), st.party_by_launcher)
+    };
+    if party_wanted && !has_party {
+        toggle_party(app, true);
+    } else if has_party && ((!party_wanted && by_launcher) || !show || (!strip && !by_launcher)) {
         close_party(app);
     }
-    #[cfg(windows)]
+    let expanded = app.st.borrow().expanded;
+    app.launcher.set_active(expanded);
+}
+
+/// Clic en el botón: despliega o vuelve a minimizar la build y la party.
+fn toggle_expanded(app: &App) {
     {
-        let st = app.st.borrow();
-        for hwnd in [st.hwnd, st.launcher_hwnd].into_iter().flatten() {
-            win::set_visible(hwnd, show);
+        let mut st = app.st.borrow_mut();
+        st.expanded = !st.expanded;
+        st.user_hidden = false;
+    }
+    app.launcher.set_attention(false);
+    sync_views(app);
+}
+
+/// Fija (o suelta) la tira o la party para que queden siempre visibles.
+#[cfg_attr(not(windows), allow(dead_code))]
+fn toggle_pin(app: &App, strip: bool) {
+    {
+        let mut st = app.st.borrow_mut();
+        if strip {
+            st.config.pin_strip = !st.config.pin_strip;
+        } else {
+            st.config.pin_party = !st.config.pin_party;
+        }
+        if !app.demo {
+            let _ = st.config.save();
         }
     }
-    app.st.borrow_mut().visible = show;
-    if show && app.st.borrow().poll_due {
-        poll_now(app);
-    }
+    sync_views(app);
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
 fn toggle_hidden(app: &App) {
     let hidden = !app.st.borrow().user_hidden;
     app.st.borrow_mut().user_hidden = hidden;
-    apply_visibility(app);
+    sync_views(app);
 }
 
 #[cfg_attr(not(windows), allow(dead_code))]
@@ -1577,20 +1674,25 @@ fn show_menu(app: &App) {
     #[cfg(windows)]
     {
         const OPEN: u32 = 1;
-        const PARTY: u32 = 2;
-        const HIDE: u32 = 3;
-        const CLICK_THROUGH: u32 = 4;
-        const PILL: u32 = 5;
-        const QUIT: u32 = 6;
+        const EXPAND: u32 = 2;
+        const PIN_STRIP: u32 = 3;
+        const PIN_PARTY: u32 = 4;
+        const HIDE: u32 = 5;
+        const CLICK_THROUGH: u32 = 6;
+        const PILL: u32 = 7;
+        const QUIT: u32 = 8;
         let Some(hwnd) = app.st.borrow().hwnd else {
             return;
         };
-        let (t, has_overlay, hidden) = {
+        let (t, has_overlay, hidden, expanded, pin_strip, pin_party) = {
             let st = app.st.borrow();
             (
                 i18n::text(st.config.lang),
                 st.overlay.is_some(),
                 st.user_hidden,
+                st.expanded,
+                st.config.pin_strip,
+                st.config.pin_party,
             )
         };
         let item = |id: u32, text: &str, checked: bool, enabled: bool| win::MenuItem {
@@ -1601,7 +1703,10 @@ fn show_menu(app: &App) {
         };
         let items = [
             item(OPEN, t.menu_open, false, true),
-            item(PARTY, t.menu_party, false, has_overlay),
+            item(EXPAND, t.menu_expand, expanded, has_overlay),
+            item(0, "", false, true),
+            item(PIN_STRIP, t.menu_pin_strip, pin_strip, true),
+            item(PIN_PARTY, t.menu_pin_party, pin_party, true),
             item(0, "", false, true),
             item(HIDE, t.menu_hide, hidden, true),
             item(
@@ -1616,12 +1721,9 @@ fn show_menu(app: &App) {
         ];
         match win::popup_menu(hwnd, &items) {
             Some(OPEN) => open_setup(app),
-            Some(PARTY) => {
-                if app.st.borrow().user_hidden {
-                    toggle_hidden(app);
-                }
-                toggle_party(app, true);
-            }
+            Some(EXPAND) => toggle_expanded(app),
+            Some(PIN_STRIP) => toggle_pin(app, true),
+            Some(PIN_PARTY) => toggle_pin(app, false),
             Some(HIDE) => toggle_hidden(app),
             Some(CLICK_THROUGH) => toggle_click_through(app),
             Some(PILL) => toggle_pill(app),
