@@ -10,6 +10,14 @@ use crate::api::{self, ApiError, Client, CompDetail, CompList, Overlay};
 use crate::assets::{self, Pixels};
 use crate::config::{Lang, normalize_name};
 
+/// Quién pidió una compo: el panel chico del overlay o la app de escritorio.
+/// Cada uno tiene su propia búsqueda y su respuesta vuelve solo a él.
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum CompTarget {
+    Panel,
+    Desk,
+}
+
 pub enum Command {
     Poll {
         code: String,
@@ -26,11 +34,13 @@ pub enum Command {
     },
     /// Buscador de compos: lista pública (con búsqueda por nombre).
     CompList {
+        target: CompTarget,
         query: String,
         offset: u32,
     },
     /// Buscador de compos: abre una compo por su código o link.
     CompGet {
+        target: CompTarget,
         reference: String,
     },
     /// Nombres en el idioma pedido y los íconos de esos ítems.
@@ -48,8 +58,9 @@ pub enum Event {
     Joined(Result<Overlay, String>),
     /// Página de la lista pública: la consulta y el offset con que se pidió,
     /// para descartar respuestas viejas.
-    CompList(String, u32, Result<CompList, String>),
-    CompDetail(Result<CompDetail, String>),
+    CompList(CompTarget, String, u32, Result<CompList, String>),
+    /// La referencia pedida (id o código) y la compo.
+    CompDetail(CompTarget, String, Result<CompDetail, String>),
     /// id original -> (id con tier, nombre).
     Names(Lang, Vec<(String, String, String)>),
     Icon(String, Pixels),
@@ -97,7 +108,11 @@ fn run(rx: Receiver<Command>) {
             Command::Join { code, name, role } => {
                 send(Event::Joined(join(&client, &code, &name, &role)));
             }
-            Command::CompList { query, offset } => {
+            Command::CompList {
+                target,
+                query,
+                offset,
+            } => {
                 let result = client
                     .list_public_comps(&query, offset)
                     .map_err(api_status)
@@ -108,9 +123,9 @@ fn run(rx: Receiver<Command>) {
                             Err(list.status)
                         }
                     });
-                send(Event::CompList(query, offset, result));
+                send(Event::CompList(target, query, offset, result));
             }
-            Command::CompGet { reference } => {
+            Command::CompGet { target, reference } => {
                 let result = client
                     .get_comp(&reference)
                     .map_err(api_status)
@@ -121,7 +136,7 @@ fn run(rx: Receiver<Command>) {
                             Err(detail.status)
                         }
                     });
-                send(Event::CompDetail(result));
+                send(Event::CompDetail(target, reference, result));
             }
             Command::Assets { lang, ids } => {
                 let wanted: HashSet<String> = ids.into_iter().collect();

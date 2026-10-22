@@ -6,6 +6,7 @@ mod assets;
 mod comps;
 mod config;
 mod data;
+mod desk;
 mod i18n;
 #[cfg(windows)]
 mod win;
@@ -26,7 +27,7 @@ use slint::{
 
 use api::{ApiError, Overlay};
 use config::{Config, Lang, normalize_code, normalize_name};
-use worker::{Command, Event};
+use worker::{Command, CompTarget, Event};
 
 slint::include_modules!();
 
@@ -66,13 +67,18 @@ struct Args {
     siempre: bool,
     /// Abre el buscador de compos al arrancar (para probarlo).
     compos: bool,
+    /// Arranca en la bandeja, sin abrir la ventana de la app.
+    bandeja: bool,
+    /// Simula que Albion está abierto (para probar la app sin el juego).
+    juego: bool,
     alpha: u8,
 }
 
 /// `--demo` usa una asignación de prueba sin servidor (`--montura` le pone el
 /// rol de montura de batalla). `--pildora` arranca en modo píldora.
 /// `--opacidad N` de 30 a 100 (por defecto 92). `--siempre` lo muestra aunque
-/// Albion no esté en primer plano (para probar sin el juego).
+/// Albion no esté en primer plano (para probar sin el juego). `--bandeja`
+/// arranca sin abrir la ventana de la app y `--juego` simula Albion abierto.
 fn parse_args() -> Args {
     let mut args = Args {
         demo: false,
@@ -80,6 +86,8 @@ fn parse_args() -> Args {
         pildora: false,
         siempre: false,
         compos: false,
+        bandeja: false,
+        juego: false,
         alpha: pct_to_alpha(92),
     };
     let mut it = std::env::args().skip(1);
@@ -93,6 +101,8 @@ fn parse_args() -> Args {
             "--pildora" => args.pildora = true,
             "--siempre" => args.siempre = true,
             "--compos" => args.compos = true,
+            "--bandeja" => args.bandeja = true,
+            "--juego" => args.juego = true,
             "--opacidad" => {
                 if let Some(pct) = it.next().and_then(|v| v.parse::<u32>().ok()) {
                     args.alpha = pct_to_alpha(pct.clamp(30, 100));
@@ -108,19 +118,45 @@ fn pct_to_alpha(pct: u32) -> u8 {
     (pct * 255 / 100) as u8
 }
 
+#[derive(Clone, Copy, PartialEq, Eq)]
+enum WindowKind {
+    /// Tira, botón, party, tooltip y buscador: sin marco ni foco.
+    Overlay,
+    /// Ingreso: ventana común con foco y en la barra de tareas, para escribir el código.
+    Dialog,
+    /// App de escritorio: sin marco (tiene su barra propia), con foco, en la
+    /// barra de tareas y redimensionable.
+    Desk,
+}
+
 thread_local! {
-    /// La próxima ventana que se cree es una ventana común (la de ingreso):
-    /// con foco y en la barra de tareas, para poder escribir el código.
-    static NEXT_WINDOW_NORMAL: Cell<bool> = const { Cell::new(false) };
+    /// Tipo de la próxima ventana que se cree.
+    static NEXT_WINDOW: Cell<WindowKind> = const { Cell::new(WindowKind::Overlay) };
 }
 
 /// Atributos de las ventanas del overlay: sin marco, siempre encima y, sobre
 /// todo, sin robarle el foco al juego al aparecer.
 fn window_attributes(attrs: WindowAttributes) -> WindowAttributes {
-    if NEXT_WINDOW_NORMAL.get() {
-        return attrs
-            .with_active(true)
-            .with_window_level(WindowLevel::AlwaysOnTop);
+    match NEXT_WINDOW.get() {
+        WindowKind::Dialog => {
+            return attrs
+                .with_active(true)
+                .with_window_level(WindowLevel::AlwaysOnTop);
+        }
+        WindowKind::Desk => {
+            let attrs = attrs
+                .with_active(true)
+                .with_decorations(false)
+                .with_resizable(true);
+            #[cfg(windows)]
+            {
+                use slint::winit_030::winit::platform::windows::WindowAttributesExtWindows;
+                return attrs.with_undecorated_shadow(true);
+            }
+            #[cfg(not(windows))]
+            return attrs;
+        }
+        WindowKind::Overlay => {}
     }
     let attrs = attrs
         .with_active(false)
@@ -184,6 +220,8 @@ struct State {
     comps_ui: comps::CompsState,
     /// Build de una compo que la persona eligió ver en la tira.
     preview: Option<api::Build>,
+    /// App de escritorio (ventana y secciones).
+    desk: desk::DeskState,
     setup: Option<SetupWindow>,
     poll_timer: Timer,
     poll_inflight: bool,
@@ -293,6 +331,7 @@ fn main() -> Result<(), slint::PlatformError> {
             comps_shown: false,
             comps_ui: comps::CompsState::default(),
             preview: None,
+            desk: desk::DeskState::new(args.juego),
             setup: None,
             poll_timer: Timer::default(),
             poll_inflight: false,
@@ -326,6 +365,9 @@ fn main() -> Result<(), slint::PlatformError> {
     apply_tr(app.ui.global::<Tr>(), app.st.borrow().config.lang);
     wire_callbacks(&app);
     render(&app);
+    // La app de escritorio se abre antes que nada (salvo que arranque en la
+    // bandeja); el overlay sigue igual y aparece solo con el juego.
+    desk::start(&app, args.bandeja);
 
     // Lo que necesita la ventana real de Windows se hace cuando winit la creó.
     let weak = Rc::downgrade(&app);
@@ -353,7 +395,7 @@ fn main() -> Result<(), slint::PlatformError> {
             win::add_tray(hwnd, "AlbionCompo overlay", move |event| {
                 let Some(app) = weak.upgrade() else { return };
                 match event {
-                    win::TrayEvent::Open => open_setup(&app),
+                    win::TrayEvent::Open => desk::show(&app),
                     win::TrayEvent::Menu => show_menu(&app),
                 }
             });
@@ -752,6 +794,7 @@ fn render(app: &App) {
     }
     request_assets(app, wanted);
     place_main(app, false);
+    desk::on_overlay(app);
 }
 
 // ---------------------------------------------------------------------------
@@ -907,8 +950,14 @@ fn on_event(app: &App, event: Event) {
                 setup.set_error_text(i18n::error(lang, &status).into());
             }
         }
-        Event::CompList(query, offset, result) => comps::on_list(app, query, offset, result),
-        Event::CompDetail(result) => comps::on_detail(app, result),
+        Event::CompList(target, query, offset, result) => match target {
+            CompTarget::Panel => comps::on_list(app, query, offset, result),
+            CompTarget::Desk => desk::compos::on_list(app, query, offset, result),
+        },
+        Event::CompDetail(target, reference, result) => match target {
+            CompTarget::Panel => comps::on_detail(app, reference, result),
+            CompTarget::Desk => desk::compos::on_detail(app, reference, result),
+        },
         Event::Names(lang, list) => {
             {
                 let mut st = app.st.borrow_mut();
@@ -921,6 +970,7 @@ fn on_event(app: &App, event: Event) {
             }
             render(app);
             comps::render(app);
+            desk::compos::render(app);
         }
         Event::Icon(id, pixels) => {
             app.st
@@ -929,6 +979,7 @@ fn on_event(app: &App, event: Event) {
                 .insert(id, pixels_to_image(&pixels));
             render(app);
             comps::render(app);
+            desk::compos::render(app);
         }
     }
 }
@@ -1321,9 +1372,9 @@ fn open_setup(app: &App) {
         let _ = setup.show();
         return;
     }
-    NEXT_WINDOW_NORMAL.set(true);
+    NEXT_WINDOW.set(WindowKind::Dialog);
     let setup = SetupWindow::new();
-    NEXT_WINDOW_NORMAL.set(false);
+    NEXT_WINDOW.set(WindowKind::Overlay);
     let Ok(setup) = setup else { return };
 
     {
@@ -1563,6 +1614,8 @@ fn set_lang(app: &App, lang: Lang) {
     }
     drop(st);
     render(app);
+    comps::render(app);
+    desk::on_lang(app);
 }
 
 /// Cierra la ventana de ingreso. Se destruye en la vuelta siguiente del
@@ -1766,13 +1819,14 @@ fn show_menu(app: &App) {
         const PILL: u32 = 7;
         const QUIT: u32 = 8;
         const COMPS: u32 = 9;
+        const DESK: u32 = 10;
         let Some(hwnd) = app.st.borrow().hwnd else {
             return;
         };
-        let (t, has_overlay, hidden, expanded, pin_strip, pin_party, comps_open) = {
+        let (lang, has_overlay, hidden, expanded, pin_strip, pin_party, comps_open) = {
             let st = app.st.borrow();
             (
-                i18n::text(st.config.lang),
+                st.config.lang,
                 st.overlay.is_some(),
                 st.user_hidden,
                 st.expanded,
@@ -1781,6 +1835,7 @@ fn show_menu(app: &App) {
                 st.comps.is_some(),
             )
         };
+        let t = i18n::text(lang);
         let item = |id: u32, text: &str, checked: bool, enabled: bool| win::MenuItem {
             id,
             text: text.to_owned(),
@@ -1788,6 +1843,8 @@ fn show_menu(app: &App) {
             enabled,
         };
         let items = [
+            item(DESK, desk::texts::text(lang).menu_desk, false, true),
+            item(0, "", false, true),
             item(OPEN, t.menu_open, false, true),
             item(EXPAND, t.menu_expand, expanded, has_overlay),
             item(0, "", false, true),
@@ -1808,6 +1865,7 @@ fn show_menu(app: &App) {
             item(QUIT, t.menu_quit, false, true),
         ];
         match win::popup_menu(hwnd, &items) {
+            Some(DESK) => desk::show(app),
             Some(OPEN) => open_setup(app),
             Some(COMPS) => comps::toggle(app),
             Some(EXPAND) => toggle_expanded(app),

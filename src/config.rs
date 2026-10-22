@@ -119,6 +119,14 @@ pub struct Config {
     pub pin_strip: bool,
     /// El panel de la party queda siempre visible.
     pub pin_party: bool,
+    // App de escritorio. Van en negativo para que el valor por defecto
+    // (`false`) sea el comportamiento normal.
+    /// Arranca solo en la bandeja, sin abrir la ventana.
+    pub start_in_tray: bool,
+    /// No esconde la ventana cuando se abre Albion.
+    pub keep_on_game: bool,
+    /// Cerrar la ventana cierra todo (si no, sigue en la bandeja).
+    pub quit_on_close: bool,
 }
 
 impl Config {
@@ -166,6 +174,9 @@ impl Config {
                 }
                 "pin_strip" => config.pin_strip = value == "1",
                 "pin_party" => config.pin_party = value == "1",
+                "start_in_tray" => config.start_in_tray = value == "1",
+                "keep_on_game" => config.keep_on_game = value == "1",
+                "quit_on_close" => config.quit_on_close = value == "1",
                 _ => {}
             }
         }
@@ -176,13 +187,17 @@ impl Config {
         // Los saltos de línea romperían el formato; no deberían aparecer nunca.
         let clean = |s: &str| s.replace(['\r', '\n'], " ");
         format!(
-            "code={}\nname={}\nrole={}\nlang={}\npin_strip={}\npin_party={}\n",
+            "code={}\nname={}\nrole={}\nlang={}\npin_strip={}\npin_party={}\n\
+             start_in_tray={}\nkeep_on_game={}\nquit_on_close={}\n",
             clean(&self.code),
             clean(&self.name),
             clean(&self.role),
             self.lang.code(),
             u8::from(self.pin_strip),
             u8::from(self.pin_party),
+            u8::from(self.start_in_tray),
+            u8::from(self.keep_on_game),
+            u8::from(self.quit_on_close),
         )
     }
 }
@@ -219,6 +234,9 @@ mod tests {
             lang_chosen: true,
             pin_strip: true,
             pin_party: false,
+            start_in_tray: false,
+            keep_on_game: true,
+            quit_on_close: true,
         };
         assert_eq!(Config::parse(&config.serialize()), config);
     }
