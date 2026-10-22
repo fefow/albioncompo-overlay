@@ -3,74 +3,9 @@
 // Las ventanas del overlay no tienen marco ni transparencia: las esquinas
 // redondeadas las recorta Windows con una región (SetWindowRgn).
 
-global Palette {
-    out property <color> bg: #15100c;
-    out property <color> panel: #211812;
-    out property <color> slot-bg: #0e0a07;
-    out property <color> slot-hover: #2a1f16;
-    out property <color> border: #4a3826;
-    out property <color> frame: #7a5c36;
-    out property <color> gold: #d6ad5e;
-    out property <color> gold-bright: #f0cf86;
-    out property <color> text: #f2e7d2;
-    out property <color> muted: #a89679;
-    out property <color> icon: #c9b48f;
-    out property <color> warn: #ffb454;
-    out property <color> error: #ff7a6b;
-    out property <color> tooltip-bg: #1a130e;
-}
-
-// Textos de las ventanas; Rust los llena según el idioma elegido (src/i18n.rs).
-export global Tr {
-    in property <string> code-title: "Entrá a tu party";
-    in property <string> code-help;
-    in property <string> code-label: "CÓDIGO DE LA ASIGNACIÓN";
-    in property <string> continue: "CONTINUAR";
-    in property <string> close: "CERRAR";
-    in property <string> back: "← Cambiar código";
-    in property <string> register-title;
-    in property <string> register-help;
-    in property <string> name-label;
-    in property <string> name-placeholder;
-    in property <string> roles-label;
-    in property <string> join: "ENTRAR";
-    in property <string> leave: "SALIR";
-    in property <string> lang-label: "IDIOMA";
-    in property <[string]> roles: ["Tank", "Healer", "Support", "DPS rango", "DPS melee", "Montura de batalla"];
-    in property <string> no-role: "SIN ROL";
-    in property <string> alternative: "Alternativa: ";
-}
-
-// Tres puntos que laten: indicador de carga. Solo existe mientras se muestra,
-// así no hay redibujo continuo cuando no hace falta.
-component Dots inherits Rectangle {
-    in property <color> dot-color: Palette.gold;
-    width: 30px;
-    height: 8px;
-
-    for i in 3: Rectangle {
-        x: i * 11px;
-        y: 1px;
-        width: 6px;
-        height: 6px;
-        border-radius: 3px;
-        background: root.dot-color;
-        opacity: 0.25 + 0.75 * (0.5 + 0.5 * sin((animation-tick() / 1ms) * 0.4deg - i * 70deg));
-    }
-}
-
-export struct Slot {
-    // Comandos SVG del ícono de reemplazo (viewBox 24x24), mientras carga el real.
-    icon: string,
-    image: image,
-    has-image: bool,
-    // "8", "8.1"... se muestra solo sobre el ícono de reemplazo.
-    tier: string,
-    tier-color: color,
-    // .1 a .4: el borde toma el color del encantamiento.
-    enchanted: bool,
-    empty: bool,
-}
+import { Palette, Tr, Dots, Slot, SlotView } from "theme.slint";
+export { Tr, Slot }
+export { AppWindow, DeskTr, DeskShell, HomePage, CompsPage, SettingsPage } from "desk/app.slint";
 
 export struct CompRow {
     name: string,
@@ -94,53 +29,6 @@ export struct Member {
     me: bool,
     image: image,
     has-image: bool,
-}
-
-component SlotView inherits Rectangle {
-    in property <Slot> slot;
-    in property <bool> hovered;
-
-    width: 38px;
-    height: 38px;
-    border-radius: 4px;
-    border-width: 1px;
-    background: hovered ? Palette.slot-hover : Palette.slot-bg;
-    border-color: slot.enchanted ? slot.tier-color : (hovered ? Palette.gold : Palette.border);
-    opacity: slot.empty ? 0.35 : 1.0;
-
-    if slot.has-image: Image {
-        x: 2px;
-        y: 2px;
-        width: parent.width - 4px;
-        height: parent.height - 4px;
-        source: slot.image;
-        image-fit: contain;
-        // Aparece suave cuando termina de bajar el ícono.
-        opacity: 0;
-        init => { self.opacity = 1; }
-        animate opacity { duration: 220ms; easing: ease-out; }
-    }
-
-    if !slot.has-image: Path {
-        width: 19px;
-        height: 19px;
-        viewbox-width: 24;
-        viewbox-height: 24;
-        commands: slot.icon;
-        stroke: hovered ? Palette.text : Palette.icon;
-        stroke-width: 1.6px;
-        stroke-line-cap: round;
-        fill: transparent;
-    }
-
-    if !slot.has-image && !slot.empty && slot.tier != "": Text {
-        x: parent.width - self.width - 3px;
-        y: parent.height - self.height - 1px;
-        text: slot.tier;
-        color: slot.tier-color;
-        font-size: 9px;
-        font-weight: 700;
-    }
 }
 
 component PartyButton inherits Rectangle {

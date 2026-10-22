@@ -427,3 +427,82 @@ unsafe extern "system" fn subclass_proc(
     }
     unsafe { DefSubclassProc(hwnd, msg, wparam, lparam) }
 }
+
+/// ¿Está abierto Albion? Recorre la lista de procesos (lo mismo que muestra
+/// el Administrador de tareas) y compara el nombre del ejecutable.
+pub fn albion_running() -> bool {
+    use windows::Win32::System::Diagnostics::ToolHelp::{
+        CreateToolhelp32Snapshot, PROCESSENTRY32W, Process32FirstW, Process32NextW,
+        TH32CS_SNAPPROCESS,
+    };
+    let Ok(snapshot) = (unsafe { CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS, 0) }) else {
+        return false;
+    };
+    let mut entry = PROCESSENTRY32W {
+        dwSize: std::mem::size_of::<PROCESSENTRY32W>() as u32,
+        ..Default::default()
+    };
+    let mut found = false;
+    let mut ok = unsafe { Process32FirstW(snapshot, &mut entry) }.is_ok();
+    while ok {
+        let len = entry
+            .szExeFile
+            .iter()
+            .position(|&c| c == 0)
+            .unwrap_or(entry.szExeFile.len());
+        if String::from_utf16_lossy(&entry.szExeFile[..len]).eq_ignore_ascii_case(GAME_EXE) {
+            found = true;
+            break;
+        }
+        ok = unsafe { Process32NextW(snapshot, &mut entry) }.is_ok();
+    }
+    unsafe {
+        let _ = CloseHandle(snapshot);
+    }
+    found
+}
+
+/// Abre un link en el navegador que la persona tenga por defecto.
+pub fn open_url(url: &str) {
+    use windows::Win32::UI::Shell::ShellExecuteW;
+    use windows::Win32::UI::WindowsAndMessaging::SW_SHOWNORMAL;
+    let url: Vec<u16> = url.encode_utf16().chain(Some(0)).collect();
+    let verb: Vec<u16> = "open".encode_utf16().chain(Some(0)).collect();
+    unsafe {
+        ShellExecuteW(
+            None,
+            PCWSTR(verb.as_ptr()),
+            PCWSTR(url.as_ptr()),
+            PCWSTR::null(),
+            PCWSTR::null(),
+            SW_SHOWNORMAL,
+        );
+    }
+}
+
+/// Ventana de la app: esquinas redondeadas y sombra de Windows 11 (en
+/// Windows 10 no hace nada) y la trae al frente.
+pub fn style_desk(hwnd: Hwnd) {
+    use windows::Win32::Graphics::Dwm::{
+        DWMWA_WINDOW_CORNER_PREFERENCE, DWMWCP_ROUND, DwmSetWindowAttribute,
+    };
+    let pref = DWMWCP_ROUND;
+    unsafe {
+        let _ = DwmSetWindowAttribute(
+            hwnd.0,
+            DWMWA_WINDOW_CORNER_PREFERENCE,
+            &pref as *const _ as *const _,
+            std::mem::size_of_val(&pref) as u32,
+        );
+    }
+}
+
+pub fn bring_to_front(hwnd: Hwnd) {
+    use windows::Win32::UI::WindowsAndMessaging::{IsIconic, SW_RESTORE};
+    unsafe {
+        if IsIconic(hwnd.0).as_bool() {
+            let _ = ShowWindow(hwnd.0, SW_RESTORE);
+        }
+        let _ = SetForegroundWindow(hwnd.0);
+    }
+}

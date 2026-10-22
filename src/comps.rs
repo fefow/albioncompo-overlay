@@ -12,29 +12,110 @@ use super::{
     style_after_show,
 };
 use crate::api::{self, CompDetail, CompItem, CompList};
-use crate::worker::Command;
+use crate::config::Lang;
+use crate::worker::{Command, CompTarget};
 
 /// Ancho lógico del panel (tiene que coincidir con `CompsWindow` en overlay.slint).
 pub const COMPS_WIDTH: f32 = 300.0;
 
+/// Lo que muestra un buscador de compos (el panel del overlay o la sección de
+/// la app): la lista pública cargada y la compo abierta.
 #[derive(Default)]
 pub struct CompsState {
     /// Búsqueda que se mandó (para descartar respuestas de una anterior).
-    query: String,
-    items: Vec<CompItem>,
-    more: bool,
-    loaded: bool,
-    loading: bool,
+    pub query: String,
+    pub items: Vec<CompItem>,
+    pub more: bool,
+    pub loaded: bool,
+    pub loading: bool,
     /// Mensaje de estado y si es un error.
-    status: Option<(String, bool)>,
-    detail: Option<Detail>,
-    selected: Option<usize>,
+    pub status: Option<(String, bool)>,
+    pub detail: Option<Detail>,
+    pub selected: Option<usize>,
 }
 
-struct Detail {
-    name: String,
-    private: bool,
-    builds: Vec<api::Build>,
+pub struct Detail {
+    /// Lo que se pidió: el id de la compo si es pública, o su código.
+    pub reference: String,
+    pub name: String,
+    pub private: bool,
+    pub builds: Vec<api::Build>,
+}
+
+impl CompsState {
+    pub fn start_list(&mut self, query: &str, offset: u32) {
+        if offset == 0 {
+            self.items.clear();
+            self.more = false;
+        }
+        self.query = query.to_owned();
+        self.loading = true;
+        self.status = None;
+    }
+
+    pub fn start_detail(&mut self) {
+        self.loading = true;
+        self.status = None;
+    }
+
+    /// Suma una página a la lista. Devuelve `false` si la respuesta es de una
+    /// búsqueda anterior y se descartó.
+    pub fn apply_list(
+        &mut self,
+        lang: Lang,
+        query: &str,
+        offset: u32,
+        result: Result<CompList, String>,
+    ) -> bool {
+        if self.query != query || self.items.len() as u32 != offset {
+            return false;
+        }
+        self.loading = false;
+        match result {
+            Ok(list) => {
+                self.loaded = true;
+                self.more = list.more;
+                self.items.extend(list.items);
+                self.status = self
+                    .items
+                    .is_empty()
+                    .then(|| (i18n::text(lang).comps_empty.to_owned(), false));
+            }
+            Err(status) => {
+                self.status = Some((i18n::error(lang, &status).to_owned(), true));
+            }
+        }
+        true
+    }
+
+    pub fn apply_detail(
+        &mut self,
+        lang: Lang,
+        reference: String,
+        result: Result<CompDetail, String>,
+    ) {
+        self.loading = false;
+        match result {
+            Ok(detail) => {
+                self.detail = Some(Detail {
+                    reference,
+                    name: detail.composition.name.unwrap_or_default(),
+                    private: detail.private,
+                    builds: detail.builds,
+                });
+                self.selected = None;
+                self.status = None;
+            }
+            Err(status) => {
+                let text = if status == "invalid" {
+                    i18n::text(lang).comps_not_found
+                } else {
+                    i18n::error(lang, &status)
+                };
+                self.status = Some((text.to_owned(), true));
+            }
+        }
+    }
 }
 
 /// Saca el código o el id de lo que pegó la persona: un link
@@ -288,86 +369,45 @@ fn wire(app: &App, window: &CompsWindow) {
 }
 
 fn request_list(app: &App, query: String, offset: u32) {
-    {
-        let mut st = app.st.borrow_mut();
-        let ui = &mut st.comps_ui;
-        if offset == 0 {
-            ui.items.clear();
-            ui.more = false;
-        }
-        ui.query = query.clone();
-        ui.loading = true;
-        ui.status = None;
-    }
-    let _ = app.tx.send(Command::CompList { query, offset });
+    app.st.borrow_mut().comps_ui.start_list(&query, offset);
+    let _ = app.tx.send(Command::CompList {
+        target: CompTarget::Panel,
+        query,
+        offset,
+    });
 }
 
 fn request_detail(app: &App, reference: String) {
-    {
-        let mut st = app.st.borrow_mut();
-        st.comps_ui.loading = true;
-        st.comps_ui.status = None;
-    }
-    let _ = app.tx.send(Command::CompGet { reference });
+    app.st.borrow_mut().comps_ui.start_detail();
+    let _ = app.tx.send(Command::CompGet {
+        target: CompTarget::Panel,
+        reference,
+    });
     render(app);
 }
 
 pub fn on_list(app: &App, query: String, offset: u32, result: Result<CompList, String>) {
-    let lang = app.st.borrow().config.lang;
-    {
+    let applied = {
         let mut st = app.st.borrow_mut();
-        let ui = &mut st.comps_ui;
-        // Una respuesta de una búsqueda anterior ya no vale.
-        if ui.query != query || ui.items.len() as u32 != offset {
-            return;
-        }
-        ui.loading = false;
-        match result {
-            Ok(list) => {
-                ui.loaded = true;
-                ui.more = list.more;
-                ui.items.extend(list.items);
-                ui.status = ui
-                    .items
-                    .is_empty()
-                    .then(|| (i18n::text(lang).comps_empty.to_owned(), false));
-            }
-            Err(status) => {
-                ui.status = Some((i18n::error(lang, &status).to_owned(), true));
-            }
-        }
+        let lang = st.config.lang;
+        st.comps_ui.apply_list(lang, &query, offset, result)
+    };
+    if applied {
+        render(app);
     }
-    render(app);
 }
 
-pub fn on_detail(app: &App, result: Result<CompDetail, String>) {
-    let lang = app.st.borrow().config.lang;
-    let mut icons = Vec::new();
-    {
+pub fn on_detail(app: &App, reference: String, result: Result<CompDetail, String>) {
+    let icons = {
         let mut st = app.st.borrow_mut();
-        let ui = &mut st.comps_ui;
-        ui.loading = false;
-        match result {
-            Ok(detail) => {
-                icons = detail.builds.iter().filter_map(member_icon_id).collect();
-                ui.detail = Some(Detail {
-                    name: detail.composition.name.unwrap_or_default(),
-                    private: detail.private,
-                    builds: detail.builds,
-                });
-                ui.selected = None;
-                ui.status = None;
-            }
-            Err(status) => {
-                let text = if status == "invalid" {
-                    i18n::text(lang).comps_not_found
-                } else {
-                    i18n::error(lang, &status)
-                };
-                ui.status = Some((text.to_owned(), true));
-            }
-        }
-    }
+        let lang = st.config.lang;
+        st.comps_ui.apply_detail(lang, reference, result);
+        st.comps_ui
+            .detail
+            .as_ref()
+            .map(|d| d.builds.iter().filter_map(member_icon_id).collect())
+            .unwrap_or_default()
+    };
     request_assets(app, icons);
     render(app);
 }

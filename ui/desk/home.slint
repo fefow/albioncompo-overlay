@@ -1,0 +1,256 @@
+// Inicio: bienvenida, estado del juego, la asignación y accesos rápidos.
+
+import { Palette } from "../theme.slint";
+import { Desk, Icon, Card, SectionTitle, DeskButton } from "widgets.slint";
+import { DeskTr, DeskShell, HomePage } from "state.slint";
+
+export component HomeView inherits Rectangle {
+    callback go-compos();
+
+    Flickable {
+        width: parent.width;
+        height: parent.height;
+        content-height: content.preferred-height + 56px;
+
+        content := VerticalLayout {
+            x: 28px;
+            y: 24px;
+            width: parent.width - 56px;
+            height: self.preferred-height;
+            spacing: 18px;
+
+            // Bienvenida.
+            Rectangle {
+                height: 128px;
+                border-radius: Desk.radius;
+                background: @linear-gradient(110deg, #2b1d11 0%, #1a120d 55%, #130e0a 100%);
+                border-width: 1px;
+                border-color: Desk.line;
+                clip: true;
+
+                // Brillo dorado que se mueve despacio en el borde derecho.
+                Rectangle {
+                    x: parent.width - 260px;
+                    y: -80px;
+                    width: 320px;
+                    height: 320px;
+                    border-radius: 160px;
+                    background: @radial-gradient(circle, #d6ad5e22 0%, #d6ad5e00 70%);
+                }
+
+                Image {
+                    x: 26px;
+                    y: (parent.height - self.height) / 2;
+                    width: 72px;
+                    height: 72px;
+                    source: @image-url("../../assets/brand-mark-96.png");
+                    image-fit: contain;
+                }
+
+                VerticalLayout {
+                    x: 118px;
+                    width: parent.width - 140px;
+                    alignment: center;
+                    spacing: 6px;
+
+                    Text {
+                        text: DeskTr.home-title;
+                        color: Palette.gold-bright;
+                        font-size: 24px;
+                        font-weight: 700;
+                    }
+
+                    Text {
+                        text: DeskTr.home-subtitle;
+                        color: Palette.muted;
+                        font-size: 13px;
+                        wrap: word-wrap;
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 18px;
+                height: 172px;
+
+                // Estado del juego.
+                Card {
+                    width: (content.width - 18px) / 2;
+
+                    VerticalLayout {
+                        padding: 20px;
+                        spacing: 10px;
+
+                        SectionTitle { text: DeskTr.game-title; }
+
+                        HorizontalLayout {
+                            spacing: 10px;
+                            alignment: start;
+
+                            Rectangle {
+                                width: 12px;
+                                height: 12px;
+                                y: 5px;
+                                border-radius: 6px;
+                                background: DeskShell.game-running ? Desk.ok : Desk.faint;
+                                animate background { duration: Desk.smooth; }
+
+                                // Halo fijo (sin animación continua, para no gastar CPU).
+                                if DeskShell.game-running: Rectangle {
+                                    x: -4px;
+                                    y: -4px;
+                                    width: 20px;
+                                    height: 20px;
+                                    border-radius: 10px;
+                                    border-width: 1px;
+                                    border-color: Desk.ok.with-alpha(0.45);
+                                }
+                            }
+
+                            Text {
+                                text: DeskShell.game-running ? DeskTr.game-running : DeskTr.game-closed;
+                                color: DeskShell.game-running ? Desk.ok : Palette.text;
+                                font-size: 18px;
+                                font-weight: 700;
+                                animate color { duration: Desk.smooth; }
+                            }
+                        }
+
+                        Text {
+                            text: DeskShell.game-running ? DeskTr.game-help-running : DeskTr.game-help-closed;
+                            color: Palette.muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+                    }
+                }
+
+                // Asignación del Comp Planner.
+                Card {
+                    width: (content.width - 18px) / 2;
+
+                    VerticalLayout {
+                        padding: 20px;
+                        spacing: 8px;
+
+                        SectionTitle { text: DeskTr.assign-title; }
+
+                        if HomePage.has-assignment: Text {
+                            text: HomePage.assign-name;
+                            color: Palette.text;
+                            font-size: 16px;
+                            font-weight: 700;
+                            overflow: elide;
+                        }
+
+                        if HomePage.has-assignment: Text {
+                            text: HomePage.assign-detail;
+                            color: Palette.muted;
+                            font-size: 12px;
+                            overflow: elide;
+                        }
+
+                        Text {
+                            text: HomePage.has-assignment ? HomePage.assign-status : DeskTr.assign-none;
+                            color: HomePage.has-assignment ? HomePage.assign-status-color : Palette.muted;
+                            font-size: 12px;
+                            wrap: word-wrap;
+                        }
+
+                        Rectangle { vertical-stretch: 1; }
+
+                        HorizontalLayout {
+                            alignment: start;
+                            DeskButton {
+                                text: HomePage.has-assignment ? DeskTr.assign-change : DeskTr.assign-enter;
+                                primary: !HomePage.has-assignment;
+                                icon: "M4 12h12M12 6l6 6-6 6";
+                                clicked => { HomePage.open-setup(); }
+                            }
+                        }
+                    }
+                }
+            }
+
+            HorizontalLayout {
+                spacing: 18px;
+
+                // Accesos rápidos.
+                Card {
+                    width: (content.width - 18px) / 2;
+                    min-height: 150px;
+
+                    VerticalLayout {
+                        padding: 20px;
+                        spacing: 12px;
+                        alignment: start;
+
+                        SectionTitle { text: DeskTr.quick-title; }
+
+                        HorizontalLayout {
+                            alignment: start;
+                            DeskButton {
+                                text: DeskTr.quick-compos;
+                                primary: true;
+                                icon: "M10.5 4a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13zM15.5 15.5L20 20";
+                                clicked => { root.go-compos(); }
+                            }
+                        }
+
+                        HorizontalLayout {
+                            alignment: start;
+                            DeskButton {
+                                text: DeskTr.quick-site;
+                                icon: "M14 4h6v6M20 4l-9 9M18 14v5H5V6h5";
+                                clicked => { HomePage.open-site(); }
+                            }
+                        }
+                    }
+                }
+
+                // Atajos del overlay.
+                Card {
+                    width: (content.width - 18px) / 2;
+
+                    VerticalLayout {
+                        padding: 20px;
+                        spacing: 8px;
+                        alignment: start;
+
+                        SectionTitle { text: DeskTr.hotkeys-title; }
+
+                        for row in HomePage.hotkeys: HorizontalLayout {
+                            spacing: 12px;
+
+                            Rectangle {
+                                width: 96px;
+                                height: 22px;
+                                border-radius: 5px;
+                                background: Palette.slot-bg;
+                                border-width: 1px;
+                                border-color: Desk.line-strong;
+
+                                Text {
+                                    text: row.keys;
+                                    color: Palette.gold;
+                                    font-size: 10px;
+                                    font-weight: 700;
+                                    horizontal-alignment: center;
+                                    vertical-alignment: center;
+                                }
+                            }
+
+                            Text {
+                                text: row.label;
+                                color: Palette.text;
+                                font-size: 12px;
+                                vertical-alignment: center;
+                                overflow: elide;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
