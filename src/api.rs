@@ -88,6 +88,40 @@ pub struct Overlay {
     pub builds: Vec<Build>,
 }
 
+/// Una compo de la lista pública del buscador.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct CompItem {
+    pub share_id: String,
+    #[serde(default)]
+    pub name: Option<String>,
+    #[serde(default)]
+    pub activity: Option<String>,
+    #[serde(default)]
+    pub builds: u32,
+}
+
+/// Respuesta de `list_public_comps`.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct CompList {
+    pub status: String,
+    #[serde(default)]
+    pub items: Vec<CompItem>,
+    #[serde(default)]
+    pub more: bool,
+}
+
+/// Respuesta de `get_comp`: una compo con sus builds.
+#[derive(Debug, Clone, Deserialize, Default)]
+pub struct CompDetail {
+    pub status: String,
+    #[serde(default)]
+    pub private: bool,
+    #[serde(default)]
+    pub composition: Named,
+    #[serde(default)]
+    pub builds: Vec<Build>,
+}
+
 #[derive(Debug, Clone, Deserialize, Default)]
 pub struct Join {
     pub status: String,
@@ -135,6 +169,18 @@ impl Client {
             "join_overlay",
             json!({ "p_code": code, "p_name": name, "p_role": role }),
         )
+    }
+
+    pub fn list_public_comps(&self, query: &str, offset: u32) -> Result<CompList, ApiError> {
+        let query = (!query.is_empty()).then_some(query);
+        self.rpc(
+            "list_public_comps",
+            json!({ "p_query": query, "p_offset": offset }),
+        )
+    }
+
+    pub fn get_comp(&self, reference: &str) -> Result<CompDetail, ApiError> {
+        self.rpc("get_comp", json!({ "p_ref": reference }))
     }
 
     fn rpc<T: serde::de::DeserializeOwned>(

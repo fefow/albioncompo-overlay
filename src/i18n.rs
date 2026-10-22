@@ -78,6 +78,22 @@ pub struct Text {
     pub menu_click_through: &'static str,
     pub menu_pill: &'static str,
     pub menu_quit: &'static str,
+    // Buscador de compos.
+    pub menu_comps: &'static str,
+    pub comps_title: &'static str,
+    pub comps_tab_public: &'static str,
+    pub comps_tab_code: &'static str,
+    pub comps_search: &'static str,
+    pub comps_code: &'static str,
+    pub comps_open: &'static str,
+    pub comps_more: &'static str,
+    pub comps_empty: &'static str,
+    pub comps_loading: &'static str,
+    pub comps_not_found: &'static str,
+    pub comps_view: &'static str,
+    pub comps_stop_view: &'static str,
+    pub comps_builds: &'static str,
+    pub comps_private: &'static str,
 }
 
 const ES: Text = Text {
@@ -151,6 +167,21 @@ const ES: Text = Text {
     menu_click_through: "Que los clics atraviesen la tira\tCtrl+Shift+L",
     menu_pill: "Modo píldora\tCtrl+Shift+M",
     menu_quit: "Salir\tCtrl+Shift+Q",
+    menu_comps: "Buscar compos\tCtrl+Shift+B",
+    comps_title: "COMPOS",
+    comps_tab_public: "Públicas",
+    comps_tab_code: "Con código",
+    comps_search: "Buscar por nombre",
+    comps_code: "Código o link de la compo",
+    comps_open: "ABRIR",
+    comps_more: "Ver más",
+    comps_empty: "No hay compos con ese nombre.",
+    comps_loading: "Buscando…",
+    comps_not_found: "No encontramos esa compo. Revisá el código.",
+    comps_view: "Ver en la tira",
+    comps_stop_view: "Dejar de ver en la tira",
+    comps_builds: "{n} builds",
+    comps_private: "Privada",
 };
 
 const EN: Text = Text {
@@ -216,6 +247,21 @@ const EN: Text = Text {
     menu_click_through: "Let clicks pass through the bar\tCtrl+Shift+L",
     menu_pill: "Pill mode\tCtrl+Shift+M",
     menu_quit: "Quit\tCtrl+Shift+Q",
+    menu_comps: "Search comps\tCtrl+Shift+B",
+    comps_title: "COMPS",
+    comps_tab_public: "Public",
+    comps_tab_code: "With code",
+    comps_search: "Search by name",
+    comps_code: "Comp code or link",
+    comps_open: "OPEN",
+    comps_more: "Show more",
+    comps_empty: "No comps with that name.",
+    comps_loading: "Searching…",
+    comps_not_found: "We couldn't find that comp. Check the code.",
+    comps_view: "Show in strip",
+    comps_stop_view: "Stop showing in strip",
+    comps_builds: "{n} builds",
+    comps_private: "Private",
 };
 
 const PT: Text = Text {
@@ -289,6 +335,21 @@ const PT: Text = Text {
     menu_click_through: "Cliques atravessam a barra\tCtrl+Shift+L",
     menu_pill: "Modo pílula\tCtrl+Shift+M",
     menu_quit: "Sair\tCtrl+Shift+Q",
+    menu_comps: "Buscar comps\tCtrl+Shift+B",
+    comps_title: "COMPS",
+    comps_tab_public: "Públicas",
+    comps_tab_code: "Com código",
+    comps_search: "Buscar por nome",
+    comps_code: "Código ou link da comp",
+    comps_open: "ABRIR",
+    comps_more: "Ver mais",
+    comps_empty: "Nenhuma comp com esse nome.",
+    comps_loading: "Buscando…",
+    comps_not_found: "Não encontramos essa comp. Confira o código.",
+    comps_view: "Ver na barra",
+    comps_stop_view: "Parar de ver na barra",
+    comps_builds: "{n} builds",
+    comps_private: "Privada",
 };
 
 pub fn text(lang: Lang) -> &'static Text {

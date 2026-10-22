@@ -33,6 +33,7 @@ Aparece solo cuando **Albion-Online.exe** está en primer plano, arriba al centr
 - **Con build asignada**: a la izquierda el rol y el nombre de la build, después los 8 casilleros (9 con rol de montura de batalla, con la montura primero). Pasá el mouse sobre un casillero y a los 300 ms aparece el nombre del ítem, el tier y la alternativa si la build tiene una.
 - **Botón de la party** (a la derecha): despliega quiénes están anotados, con su rol y el arma de su build, ordenados por rol. Tu fila va resaltada.
 - **Varias parties y caller**: si el líder armó la asignación con varias parties, cuando te asigna build la celda de la build dice en cuál estás ("P2 · …") y el panel muestra solo tu party con su nombre. Si cargó quién callea, aparece arriba en el panel. Necesita `supabase/assignment-parties.sql` de la web corrido antes que `sql/overlay.sql`.
+- **Buscar compos**: el botón del menú (o Ctrl+Shift+B) abre un panel chico, oculto por defecto, con las compos públicas (con buscador por nombre) y una pestaña "Con código" para abrir una privada con su código o link. Al elegir una compo ves sus builds y podés mostrar una en la tira. Solo consulta cuando buscás o abrís algo, sin polling, y queda fijo hasta que lo cerrás. Necesita [`sql/compos.sql`](sql/compos.sql), corrido después de `sql/overlay.sql`.
 - **Clic derecho** en cualquier parte de la tira: abre la ventana de ingreso (cambiar código, nombre, idioma o salir de la asignación).
 - **Por defecto todo queda minimizado en el botón flotante** con el logo de AlbionCompo, en el borde derecho del juego. Sin asignación, el botón abre el ingreso; con asignación, despliega la build arriba y la party al lado, y otro clic los vuelve a minimizar. Cuando el líder te asigna una build nueva, el borde del botón late hasta que lo tocás. Desde el menú podés **fijar** la build o la party para que queden siempre visibles (se recuerda para la próxima). El puntito muestra el estado (dorado esperando build, color del rol con build, ámbar si hay un problema). Clic derecho: el mismo menú que la bandeja.
 - **Ícono en la bandeja** de Windows (al lado del reloj): clic abre el ingreso; clic derecho muestra un menú para ver la party, ocultar el overlay, hacer que los clics atraviesen la tira, cambiar a píldora o salir.
@@ -48,6 +49,7 @@ Consulta la asignación cada 15 s mientras esperás build, cada 3 min cuando ya 
 | Ctrl+Shift+L | Click-through: el mouse atraviesa el overlay y el juego recibe todos los clics (el borde se pone ámbar) |
 | Ctrl+Shift+M | Alterna entre la tira y la píldora |
 | Ctrl+Shift+P | Abre o cierra el panel de la party |
+| Ctrl+Shift+B | Abre o cierra el buscador de compos |
 | Ctrl+Shift+K | Abre la ventana de ingreso (código, nombre, idioma) |
 | Ctrl+Shift+H | Oculta o vuelve a mostrar todo el overlay (tira, botón y party) |
 | Ctrl+Shift+Q | Cierra el overlay |

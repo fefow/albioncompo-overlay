@@ -3,6 +3,7 @@
 
 mod api;
 mod assets;
+mod comps;
 mod config;
 mod data;
 mod i18n;
@@ -63,6 +64,8 @@ struct Args {
     montura: bool,
     pildora: bool,
     siempre: bool,
+    /// Abre el buscador de compos al arrancar (para probarlo).
+    compos: bool,
     alpha: u8,
 }
 
@@ -76,6 +79,7 @@ fn parse_args() -> Args {
         montura: false,
         pildora: false,
         siempre: false,
+        compos: false,
         alpha: pct_to_alpha(92),
     };
     let mut it = std::env::args().skip(1);
@@ -88,6 +92,7 @@ fn parse_args() -> Args {
             }
             "--pildora" => args.pildora = true,
             "--siempre" => args.siempre = true,
+            "--compos" => args.compos = true,
             "--opacidad" => {
                 if let Some(pct) = it.next().and_then(|v| v.parse::<u32>().ok()) {
                     args.alpha = pct_to_alpha(pct.clamp(30, 100));
@@ -173,6 +178,12 @@ struct State {
     tooltip: Option<TooltipWindow>,
     hover_timer: Timer,
     party: Option<PartyWindow>,
+    /// Buscador de compos: ventana, si se está mostrando y lo que ya se cargó.
+    comps: Option<CompsWindow>,
+    comps_shown: bool,
+    comps_ui: comps::CompsState,
+    /// Build de una compo que la persona eligió ver en la tira.
+    preview: Option<api::Build>,
     setup: Option<SetupWindow>,
     poll_timer: Timer,
     poll_inflight: bool,
@@ -278,6 +289,10 @@ fn main() -> Result<(), slint::PlatformError> {
             tooltip: None,
             hover_timer: Timer::default(),
             party: None,
+            comps: None,
+            comps_shown: false,
+            comps_ui: comps::CompsState::default(),
+            preview: None,
             setup: None,
             poll_timer: Timer::default(),
             poll_inflight: false,
@@ -378,6 +393,7 @@ fn main() -> Result<(), slint::PlatformError> {
     // Botón flotante: sin foco como la tira, pero siempre se puede clickear.
     app.launcher.show()?;
     let weak = Rc::downgrade(&app);
+    let open_comps = args.compos;
     slint::spawn_local(async move {
         let Some(app) = weak.upgrade() else { return };
         let Ok(winit_window) = app.launcher.window().winit_window().await else {
@@ -393,6 +409,9 @@ fn main() -> Result<(), slint::PlatformError> {
         }
         drop(winit_window);
         place_launcher(&app);
+        if open_comps {
+            comps::toggle(&app);
+        }
     })
     .expect("el bucle de eventos de Slint no está disponible");
 
@@ -605,11 +624,16 @@ fn render(app: &App) {
         let t = i18n::text(lang);
         let overlay = st.overlay.as_ref();
         let entry = overlay.and_then(|o| my_entry(o, &st.config.name));
-        let build = overlay.zip(entry).and_then(|(o, e)| build_of(o, e));
-        let show_build = matches!(
-            st.phase,
-            Phase::Assigned | Phase::Offline | Phase::RateLimited
-        );
+        let assigned_build = overlay.zip(entry).and_then(|(o, e)| build_of(o, e));
+        // Una build elegida en el buscador de compos tiene prioridad en la tira.
+        let preview = st.preview.as_ref();
+        let build = preview.or(assigned_build);
+        let show_build = preview.is_some()
+            || matches!(
+                st.phase,
+                Phase::Assigned | Phase::Offline | Phase::RateLimited
+            );
+        let entry = entry.filter(|_| preview.is_none());
         let role = display_role(build, entry);
 
         let mut slots = Vec::new();
@@ -666,7 +690,10 @@ fn render(app: &App) {
             .and_then(|b| b.name.clone())
             .unwrap_or_default();
         // Con varias parties la celda dice en cuál estás: "P2 · Sagrado ZvZ".
-        let build_name = match overlay.and_then(|o| my_party(o, &st.config.name)) {
+        let build_name = match overlay
+            .filter(|_| preview.is_none())
+            .and_then(|o| my_party(o, &st.config.name))
+        {
             Some(p) if show_build && build_name.is_empty() => format!("P{}", p + 1),
             Some(p) if show_build => format!("P{} · {build_name}", p + 1),
             _ => build_name,
@@ -880,6 +907,8 @@ fn on_event(app: &App, event: Event) {
                 setup.set_error_text(i18n::error(lang, &status).into());
             }
         }
+        Event::CompList(query, offset, result) => comps::on_list(app, query, offset, result),
+        Event::CompDetail(result) => comps::on_detail(app, result),
         Event::Names(lang, list) => {
             {
                 let mut st = app.st.borrow_mut();
@@ -891,6 +920,7 @@ fn on_event(app: &App, event: Event) {
                 }
             }
             render(app);
+            comps::render(app);
         }
         Event::Icon(id, pixels) => {
             app.st
@@ -898,6 +928,7 @@ fn on_event(app: &App, event: Event) {
                 .icons
                 .insert(id, pixels_to_image(&pixels));
             render(app);
+            comps::render(app);
         }
     }
 }
@@ -1581,7 +1612,7 @@ fn sync_views(app: &App) {
 
     let (strip, party_wanted) = {
         let st = app.st.borrow();
-        let open = st.expanded || st.config.pin_strip;
+        let open = st.expanded || st.config.pin_strip || st.preview.is_some();
         let party = st.overlay.is_some() && (st.expanded || st.config.pin_party);
         (show && open, show && party)
     };
@@ -1608,8 +1639,12 @@ fn sync_views(app: &App) {
     } else if has_party && ((!party_wanted && by_launcher) || !show || (!strip && !by_launcher)) {
         close_party(app);
     }
-    let expanded = app.st.borrow().expanded;
-    app.launcher.set_active(expanded);
+    comps::sync_visibility(app, show);
+    let active = {
+        let st = app.st.borrow();
+        st.expanded || st.comps.is_some()
+    };
+    app.launcher.set_active(active);
 }
 
 /// Clic en el botón: despliega o vuelve a minimizar la build y la party.
@@ -1715,6 +1750,7 @@ fn place_launcher(app: &App) {
         win::round_corners(hwnd, size as u32, size as u32, (size / 2) as u32);
     }
     reposition_party(app);
+    comps::reposition(app);
 }
 
 /// Menú de la bandeja y del clic derecho en el botón flotante.
@@ -1729,10 +1765,11 @@ fn show_menu(app: &App) {
         const CLICK_THROUGH: u32 = 6;
         const PILL: u32 = 7;
         const QUIT: u32 = 8;
+        const COMPS: u32 = 9;
         let Some(hwnd) = app.st.borrow().hwnd else {
             return;
         };
-        let (t, has_overlay, hidden, expanded, pin_strip, pin_party) = {
+        let (t, has_overlay, hidden, expanded, pin_strip, pin_party, comps_open) = {
             let st = app.st.borrow();
             (
                 i18n::text(st.config.lang),
@@ -1741,6 +1778,7 @@ fn show_menu(app: &App) {
                 st.expanded,
                 st.config.pin_strip,
                 st.config.pin_party,
+                st.comps.is_some(),
             )
         };
         let item = |id: u32, text: &str, checked: bool, enabled: bool| win::MenuItem {
@@ -1752,6 +1790,8 @@ fn show_menu(app: &App) {
         let items = [
             item(OPEN, t.menu_open, false, true),
             item(EXPAND, t.menu_expand, expanded, has_overlay),
+            item(0, "", false, true),
+            item(COMPS, t.menu_comps, comps_open, true),
             item(0, "", false, true),
             item(PIN_STRIP, t.menu_pin_strip, pin_strip, true),
             item(PIN_PARTY, t.menu_pin_party, pin_party, true),
@@ -1769,6 +1809,7 @@ fn show_menu(app: &App) {
         ];
         match win::popup_menu(hwnd, &items) {
             Some(OPEN) => open_setup(app),
+            Some(COMPS) => comps::toggle(app),
             Some(EXPAND) => toggle_expanded(app),
             Some(PIN_STRIP) => toggle_pin(app, true),
             Some(PIN_PARTY) => toggle_pin(app, false),
@@ -1791,6 +1832,7 @@ fn on_hotkey(app: &App, key: win::Hotkey) {
         win::Hotkey::Party => toggle_party(app, false),
         win::Hotkey::Setup => open_setup(app),
         win::Hotkey::Hide => toggle_hidden(app),
+        win::Hotkey::Comps => comps::toggle(app),
         win::Hotkey::Quit => quit(app),
     }
 }

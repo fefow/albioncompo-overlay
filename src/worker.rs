@@ -6,7 +6,7 @@ use std::cell::RefCell;
 use std::collections::HashSet;
 use std::sync::mpsc::{Receiver, Sender, channel};
 
-use crate::api::{self, ApiError, Client, Overlay};
+use crate::api::{self, ApiError, Client, CompDetail, CompList, Overlay};
 use crate::assets::{self, Pixels};
 use crate::config::{Lang, normalize_name};
 
@@ -24,6 +24,15 @@ pub enum Command {
         name: String,
         role: String,
     },
+    /// Buscador de compos: lista pública (con búsqueda por nombre).
+    CompList {
+        query: String,
+        offset: u32,
+    },
+    /// Buscador de compos: abre una compo por su código o link.
+    CompGet {
+        reference: String,
+    },
     /// Nombres en el idioma pedido y los íconos de esos ítems.
     Assets {
         lang: Lang,
@@ -37,6 +46,10 @@ pub enum Event {
     /// "network"...) para traducirlo en la UI.
     Checked(String, Result<Overlay, String>),
     Joined(Result<Overlay, String>),
+    /// Página de la lista pública: la consulta y el offset con que se pidió,
+    /// para descartar respuestas viejas.
+    CompList(String, u32, Result<CompList, String>),
+    CompDetail(Result<CompDetail, String>),
     /// id original -> (id con tier, nombre).
     Names(Lang, Vec<(String, String, String)>),
     Icon(String, Pixels),
@@ -83,6 +96,32 @@ fn run(rx: Receiver<Command>) {
             }
             Command::Join { code, name, role } => {
                 send(Event::Joined(join(&client, &code, &name, &role)));
+            }
+            Command::CompList { query, offset } => {
+                let result = client
+                    .list_public_comps(&query, offset)
+                    .map_err(api_status)
+                    .and_then(|list| {
+                        if list.status == "ok" {
+                            Ok(list)
+                        } else {
+                            Err(list.status)
+                        }
+                    });
+                send(Event::CompList(query, offset, result));
+            }
+            Command::CompGet { reference } => {
+                let result = client
+                    .get_comp(&reference)
+                    .map_err(api_status)
+                    .and_then(|detail| {
+                        if detail.status == "ok" {
+                            Ok(detail)
+                        } else {
+                            Err(detail.status)
+                        }
+                    });
+                send(Event::CompDetail(result));
             }
             Command::Assets { lang, ids } => {
                 let wanted: HashSet<String> = ids.into_iter().collect();

@@ -72,6 +72,20 @@ export struct Slot {
     empty: bool,
 }
 
+export struct CompRow {
+    name: string,
+    meta: string,
+}
+
+export struct BuildRow {
+    name: string,
+    role: string,
+    role-color: color,
+    image: image,
+    has-image: bool,
+    selected: bool,
+}
+
 export struct Member {
     name: string,
     role: string,
@@ -1203,6 +1217,366 @@ export component LauncherWindow inherits Window {
         pointer-event(e) => {
             if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
                 root.right-clicked();
+            }
+        }
+    }
+}
+
+
+// Entrada de una línea, chica, para el buscador de compos.
+component MiniInput inherits Rectangle {
+    in property <string> placeholder;
+    in-out property <string> text;
+    in property <bool> upper;
+    callback accepted();
+
+    height: 28px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: input.has-focus ? Palette.gold : Palette.border;
+    background: Palette.slot-bg;
+    forward-focus: input;
+    animate border-color { duration: 160ms; }
+
+    if root.text == "" && !input.has-focus: Text {
+        x: 8px;
+        width: parent.width - 16px;
+        height: parent.height;
+        text: root.placeholder;
+        color: #6d5f4b;
+        font-size: 12px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    input := TextInput {
+        x: 8px;
+        width: parent.width - 16px;
+        height: parent.height;
+        text <=> root.text;
+        color: Palette.text;
+        selection-background-color: #6b5230;
+        font-size: 12px;
+        vertical-alignment: center;
+        single-line: true;
+        accepted => { root.accepted(); }
+    }
+
+    public function focus-input() {
+        input.focus();
+    }
+}
+
+// Buscador de compos: lista pública con búsqueda, o una compo por su código.
+// Chico y oculto hasta que se abre; una vez abierto queda fijo hasta cerrarlo.
+export component CompsWindow inherits Window {
+    // Textos (los llena Rust según el idioma).
+    in property <string> heading;
+    in property <string> tab-public;
+    in property <string> tab-code;
+    in property <string> search-placeholder;
+    in property <string> code-placeholder;
+    in property <string> open-text;
+    in property <string> more-text;
+    in property <string> view-text;
+    in property <string> stop-text;
+    in property <string> private-text;
+    // Estado.
+    // 0 = lista, 1 = detalle de una compo.
+    in property <int> mode;
+    in-out property <int> tab;
+    in-out property <string> query;
+    in-out property <string> code;
+    in property <string> status-text;
+    in property <bool> status-error;
+    in property <bool> loading;
+    in property <bool> has-more;
+    in property <[CompRow]> items;
+    in property <string> detail-name;
+    in property <bool> detail-private;
+    in property <[BuildRow]> builds;
+    in property <bool> can-view;
+    in property <bool> previewing;
+    callback search();
+    callback more();
+    callback open-item(int);
+    callback open-code();
+    callback back();
+    callback pick-build(int);
+    callback view-in-strip();
+    callback stop-view();
+    callback close-clicked();
+
+    title: "AlbionCompo";
+    no-frame: true;
+    always-on-top: true;
+    default-font-family: "Segoe UI";
+    background: Palette.bg;
+    width: 300px;
+    height: 400px;
+
+    Rectangle {
+        border-width: 1px;
+        border-radius: 7px;
+        border-color: Palette.frame;
+    }
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+
+        HorizontalLayout {
+            spacing: 6px;
+            height: 18px;
+
+            if root.mode == 1: Rectangle {
+                width: 18px;
+                Text {
+                    text: "←";
+                    color: back-touch.has-hover ? Palette.gold-bright : Palette.gold;
+                    font-size: 14px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                back-touch := TouchArea { clicked => { root.back(); } }
+            }
+
+            Text {
+                text: root.mode == 1 ? root.detail-name : root.heading;
+                color: Palette.gold;
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: root.mode == 1 ? 0.4px : 1.4px;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+
+            if root.mode == 1 && root.detail-private: Text {
+                text: root.private-text;
+                color: Palette.muted;
+                font-size: 10px;
+                vertical-alignment: center;
+            }
+
+            Rectangle {
+                width: 18px;
+                Text {
+                    text: "✕";
+                    color: x-touch.has-hover ? Palette.text : Palette.muted;
+                    font-size: 11px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                x-touch := TouchArea { clicked => { root.close-clicked(); } }
+            }
+        }
+
+        if root.mode == 0: HorizontalLayout {
+            spacing: 4px;
+            height: 24px;
+
+            for label[i] in [root.tab-public, root.tab-code]: Rectangle {
+                border-radius: 4px;
+                background: root.tab == i ? #2a1f16 : transparent;
+                border-width: 1px;
+                border-color: root.tab == i ? Palette.border : transparent;
+                animate background { duration: 160ms; }
+
+                Text {
+                    text: label;
+                    color: root.tab == i ? Palette.gold-bright : Palette.muted;
+                    font-size: 11px;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                TouchArea { clicked => { root.tab = i; } }
+            }
+        }
+
+        if root.mode == 0 && root.tab == 0: MiniInput {
+            placeholder: root.search-placeholder;
+            text <=> root.query;
+            accepted => { root.search(); }
+        }
+
+        if root.mode == 0 && root.tab == 1: HorizontalLayout {
+            spacing: 6px;
+            height: 28px;
+
+            MiniInput {
+                placeholder: root.code-placeholder;
+                text <=> root.code;
+                accepted => { root.open-code(); }
+            }
+
+            Rectangle {
+                width: 64px;
+                border-radius: 4px;
+                background: code-touch.has-hover ? #8a6a38 : #6b5230;
+                animate background { duration: 120ms; }
+
+                Text {
+                    text: root.open-text;
+                    color: Palette.text;
+                    font-size: 10px;
+                    font-weight: 700;
+                    letter-spacing: 1px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                code-touch := TouchArea { clicked => { root.open-code(); } }
+            }
+        }
+
+        if root.status-text != "": Text {
+            text: root.status-text;
+            color: root.status-error ? Palette.error : Palette.muted;
+            font-size: 11px;
+            wrap: word-wrap;
+        }
+
+        if root.mode == 0 && root.tab == 0: Flickable {
+            content-height: root.items.length * 30px + (root.has-more ? 28px : 0px);
+
+            for item[i] in root.items: Rectangle {
+                y: i * 30px;
+                height: 30px;
+                border-radius: 3px;
+                background: row-touch.has-hover ? Palette.slot-hover : transparent;
+                animate background { duration: 100ms; }
+
+                HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    spacing: 6px;
+
+                    Text {
+                        text: item.name;
+                        color: Palette.text;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+
+                    Text {
+                        text: item.meta;
+                        color: Palette.muted;
+                        font-size: 10px;
+                        vertical-alignment: center;
+                    }
+                }
+
+                row-touch := TouchArea { clicked => { root.open-item(i); } }
+            }
+
+            if root.has-more: Rectangle {
+                y: root.items.length * 30px;
+                height: 28px;
+                Text {
+                    text: root.more-text;
+                    color: more-touch.has-hover ? Palette.gold-bright : Palette.gold;
+                    font-size: 11px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                more-touch := TouchArea { clicked => { root.more(); } }
+            }
+        }
+
+        if root.mode == 1: Flickable {
+            content-height: root.builds.length * 30px;
+
+            for build[i] in root.builds: Rectangle {
+                y: i * 30px;
+                height: 30px;
+                border-radius: 3px;
+                background: build.selected ? #2a1f16 : (build-touch.has-hover ? Palette.slot-hover : transparent);
+                border-width: build.selected ? 1px : 0px;
+                border-color: Palette.border;
+                animate background { duration: 100ms; }
+
+                HorizontalLayout {
+                    padding-left: 5px;
+                    padding-right: 6px;
+                    spacing: 7px;
+
+                    Rectangle {
+                        width: 22px;
+                        height: 22px;
+                        y: 4px;
+                        border-radius: 3px;
+                        border-width: 1px;
+                        border-color: Palette.border;
+                        background: Palette.slot-bg;
+
+                        if build.has-image: Image {
+                            x: 1px;
+                            y: 1px;
+                            width: 20px;
+                            height: 20px;
+                            source: build.image;
+                            image-fit: contain;
+                        }
+
+                        if !build.has-image: Rectangle {
+                            width: 6px;
+                            height: 6px;
+                            border-radius: 3px;
+                            background: build.role-color;
+                        }
+                    }
+
+                    Text {
+                        text: build.name;
+                        color: build.selected ? Palette.gold-bright : Palette.text;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+
+                    Text {
+                        text: build.role;
+                        color: build.role-color;
+                        font-size: 10px;
+                        font-weight: 700;
+                        letter-spacing: 0.8px;
+                        vertical-alignment: center;
+                    }
+                }
+
+                build-touch := TouchArea { clicked => { root.pick-build(i); } }
+            }
+        }
+
+        if root.mode == 1 && (root.can-view || root.previewing): Rectangle {
+            height: 28px;
+            border-radius: 4px;
+            background: view-touch.has-hover ? #8a6a38 : #6b5230;
+            animate background { duration: 120ms; }
+
+            Text {
+                text: root.previewing && !root.can-view ? root.stop-text : root.view-text;
+                color: Palette.text;
+                font-size: 11px;
+                font-weight: 700;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            view-touch := TouchArea {
+                clicked => {
+                    if root.previewing && !root.can-view {
+                        root.stop-view();
+                    } else {
+                        root.view-in-strip();
+                    }
+                }
             }
         }
     }
