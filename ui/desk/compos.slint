@@ -1,0 +1,397 @@
+// Compos: las públicas en tarjetas (con búsqueda), una privada por su código,
+// y el detalle de una compo con sus builds completas.
+
+import { Palette, Dots, SlotView } from "../theme.slint";
+import { Desk, Icon, Card, DeskButton, Tabs, SearchField, Badge, Reveal } from "widgets.slint";
+import { DeskTr, CompsPage, DeskComp, DeskBuild } from "state.slint";
+
+component CompCard inherits Card {
+    in property <DeskComp> comp;
+    callback clicked();
+
+    hoverable: true;
+    hovered: touch.has-hover;
+    // Entra con un fundido al aparecer.
+    opacity: 0;
+    init => { self.opacity = 1; }
+    animate opacity { duration: 260ms; easing: ease-out; }
+
+    VerticalLayout {
+        padding: 16px;
+        spacing: 10px;
+
+        Text {
+            text: root.comp.name;
+            color: touch.has-hover ? Palette.gold-bright : Palette.text;
+            font-size: 15px;
+            font-weight: 700;
+            overflow: elide;
+            animate color { duration: Desk.quick; }
+        }
+
+        HorizontalLayout {
+            spacing: 8px;
+            alignment: start;
+
+            if root.comp.activity != "": Badge { text: root.comp.activity; }
+
+            Text {
+                text: root.comp.builds;
+                color: Palette.muted;
+                font-size: 12px;
+                vertical-alignment: center;
+            }
+        }
+    }
+
+    Icon {
+        x: parent.width - self.width - 14px;
+        y: (parent.height - self.height) / 2;
+        path: "M9 5l7 7-7 7";
+        size: 16px;
+        color: touch.has-hover ? Palette.gold : Desk.line-strong;
+        animate color { duration: Desk.quick; }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component BuildCard inherits Card {
+    in property <DeskBuild> build;
+    in property <int> index;
+    property <int> hovered-slot: -1;
+
+    height: 104px;
+
+    // Color del rol a la izquierda.
+    Rectangle {
+        x: 0;
+        y: 14px;
+        width: 3px;
+        height: parent.height - 28px;
+        border-radius: 1.5px;
+        background: root.build.role-color;
+    }
+
+    VerticalLayout {
+        x: 18px;
+        y: 14px;
+        width: parent.width - 36px;
+        height: parent.height - 28px;
+        spacing: 8px;
+
+        HorizontalLayout {
+            spacing: 10px;
+            height: 20px;
+
+            Text {
+                text: root.build.name;
+                color: Palette.text;
+                font-size: 14px;
+                font-weight: 700;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+
+            if root.build.role != "": Badge {
+                y: 0;
+                text: root.build.role;
+                accent: root.build.role-color;
+            }
+
+            // Nombre del ítem bajo el mouse.
+            Text {
+                horizontal-stretch: 1;
+                text: root.hovered-slot >= 0 ? root.build.names[root.hovered-slot] : "";
+                color: Palette.gold;
+                font-size: 12px;
+                horizontal-alignment: right;
+                vertical-alignment: center;
+                overflow: elide;
+            }
+        }
+
+        HorizontalLayout {
+            spacing: 6px;
+            alignment: start;
+
+            for slot[i] in root.build.slots: Rectangle {
+                width: 42px;
+                height: 42px;
+
+                SlotView {
+                    width: 42px;
+                    height: 42px;
+                    slot: slot;
+                    hovered: slot-touch.has-hover;
+                }
+
+                slot-touch := TouchArea {
+                    changed has-hover => {
+                        if self.has-hover {
+                            root.hovered-slot = i;
+                        } else if root.hovered-slot == i {
+                            root.hovered-slot = -1;
+                        }
+                    }
+                }
+            }
+
+            Rectangle { horizontal-stretch: 1; }
+
+            VerticalLayout {
+                alignment: center;
+                DeskButton {
+                    text: root.build.in-overlay ? DeskTr.in-overlay : DeskTr.view-overlay;
+                    primary: !root.build.in-overlay;
+                    icon: root.build.in-overlay ? "M5 12l5 5 9-10" : "M4 6h16v9H4zM9 19h6M12 15v4";
+                    clicked => { CompsPage.toggle-overlay(root.index); }
+                }
+            }
+        }
+    }
+}
+
+// Indicador fino de desplazamiento para las listas.
+component ScrollHint inherits Rectangle {
+    in property <length> viewport-y;
+    in property <length> viewport-height;
+    in property <length> visible-height;
+    property <float> ratio: viewport-height > 0 ? min(1, visible-height / viewport-height) : 1;
+    width: 4px;
+    visible: ratio < 0.999;
+
+    Rectangle {
+        y: -root.viewport-y * root.ratio;
+        width: parent.width;
+        height: max(28px, parent.height * root.ratio);
+        border-radius: 2px;
+        background: Desk.line-strong;
+    }
+}
+
+export component ComposView inherits Rectangle {
+    property <length> pad: 28px;
+
+    // Barra de búsqueda (solo en la lista).
+    Reveal {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: 70px;
+        active: CompsPage.mode == 0;
+        offset: -8px;
+
+        HorizontalLayout {
+            x: root.pad;
+            y: 20px;
+            width: parent.width - 2 * root.pad;
+            height: 38px;
+            spacing: 12px;
+
+            Tabs {
+                labels: [DeskTr.tab-public, DeskTr.tab-code];
+                current <=> CompsPage.tab;
+                tab-width: 120px;
+            }
+
+            if CompsPage.tab == 0: SearchField {
+                horizontal-stretch: 1;
+                placeholder: DeskTr.search-placeholder;
+                icon: "M10.5 4a6.5 6.5 0 1 0 0 13a6.5 6.5 0 1 0 0-13zM15.5 15.5L20 20";
+                text <=> CompsPage.query;
+                accepted => { CompsPage.search(); }
+            }
+
+            if CompsPage.tab == 0: DeskButton {
+                text: DeskTr.search;
+                primary: true;
+                busy: CompsPage.loading && CompsPage.mode == 0;
+                clicked => { CompsPage.search(); }
+            }
+
+            if CompsPage.tab == 1: SearchField {
+                horizontal-stretch: 1;
+                placeholder: DeskTr.code-placeholder;
+                icon: "M8 11V8a4 4 0 0 1 8 0v3M6 11h12v9H6z";
+                text <=> CompsPage.code;
+                accepted => { CompsPage.open-code(); }
+            }
+
+            if CompsPage.tab == 1: DeskButton {
+                text: DeskTr.open;
+                primary: true;
+                busy: CompsPage.loading;
+                clicked => { CompsPage.open-code(); }
+            }
+        }
+    }
+
+    // Lista de compos públicas.
+    grid := Reveal {
+        x: 0;
+        y: 70px;
+        width: parent.width;
+        height: parent.height - 70px;
+        active: CompsPage.mode == 0;
+
+        property <length> gap: 14px;
+        property <length> inner: self.width - 2 * root.pad;
+        property <int> cols: max(1, floor((self.inner + self.gap) / (300px + self.gap)));
+        property <length> card-w: (self.inner - (self.cols - 1) * self.gap) / self.cols;
+        property <length> card-h: 78px;
+        property <int> rows: ceil(CompsPage.items.length / self.cols);
+
+        if CompsPage.status-text != "": Text {
+            x: root.pad;
+            y: 4px;
+            width: parent.width - 2 * root.pad;
+            text: CompsPage.status-text;
+            color: CompsPage.status-error ? Palette.error : Palette.muted;
+            font-size: 13px;
+            wrap: word-wrap;
+        }
+
+        list := Flickable {
+            x: 0;
+            y: CompsPage.status-text != "" ? 30px : 0px;
+            width: parent.width;
+            height: parent.height - self.y;
+            content-height: grid.rows * (grid.card-h + grid.gap) + (CompsPage.has-more ? 70px : 24px);
+
+            for comp[i] in CompsPage.items: CompCard {
+                x: root.pad + mod(i, grid.cols) * (grid.card-w + grid.gap);
+                y: floor(i / grid.cols) * (grid.card-h + grid.gap);
+                width: grid.card-w;
+                height: grid.card-h;
+                comp: comp;
+                clicked => { CompsPage.open-item(i); }
+            }
+
+            if CompsPage.has-more: DeskButton {
+                width: 160px;
+                x: (parent.width - self.width) / 2;
+                y: grid.rows * (grid.card-h + grid.gap) + 8px;
+                text: DeskTr.more;
+                busy: CompsPage.loading;
+                clicked => { CompsPage.more(); }
+            }
+        }
+
+        ScrollHint {
+            x: parent.width - 10px;
+            y: list.y + 4px;
+            height: list.height - 8px;
+            viewport-y: list.content-y;
+            viewport-height: list.content-height;
+            visible-height: list.height;
+        }
+    }
+
+    // Detalle de una compo.
+    Reveal {
+        x: 0;
+        y: 0;
+        width: parent.width;
+        height: parent.height;
+        active: CompsPage.mode == 1;
+        offset: 18px;
+
+        HorizontalLayout {
+            x: root.pad;
+            y: 20px;
+            width: parent.width - 2 * root.pad;
+            height: 38px;
+            spacing: 12px;
+
+            DeskButton {
+                text: DeskTr.back;
+                icon: "M15 5l-7 7 7 7";
+                clicked => { CompsPage.back(); }
+            }
+
+            VerticalLayout {
+                alignment: center;
+                horizontal-stretch: 1;
+                spacing: 2px;
+
+                HorizontalLayout {
+                    spacing: 10px;
+                    alignment: start;
+
+                    Text {
+                        text: CompsPage.detail-name;
+                        color: Palette.gold-bright;
+                        font-size: 18px;
+                        font-weight: 700;
+                        overflow: elide;
+                    }
+
+                    if CompsPage.detail-private: Badge {
+                        y: 3px;
+                        text: DeskTr.private;
+                        accent: Palette.warn;
+                    }
+                }
+
+                Text {
+                    text: CompsPage.detail-meta;
+                    color: Palette.muted;
+                    font-size: 12px;
+                }
+            }
+
+            if CompsPage.can-open-web: DeskButton {
+                text: DeskTr.open-web;
+                icon: "M14 4h6v6M20 4l-9 9M18 14v5H5V6h5";
+                clicked => { CompsPage.open-web(); }
+            }
+        }
+
+        Text {
+            x: root.pad;
+            y: 68px;
+            width: parent.width - 2 * root.pad;
+            text: CompsPage.status-text != "" && CompsPage.mode == 1 ? CompsPage.status-text : DeskTr.overlay-hint;
+            color: CompsPage.status-error ? Palette.error : Desk.faint;
+            font-size: 12px;
+        }
+
+        builds := Flickable {
+            x: 0;
+            y: 96px;
+            width: parent.width;
+            height: parent.height - 96px;
+            content-height: CompsPage.builds.length * 114px + 24px;
+
+            for build[i] in CompsPage.builds: BuildCard {
+                x: root.pad;
+                y: i * 114px;
+                width: parent.width - 2 * root.pad;
+                build: build;
+                index: i;
+            }
+        }
+
+        ScrollHint {
+            x: parent.width - 10px;
+            y: builds.y + 4px;
+            height: builds.height - 8px;
+            viewport-y: builds.content-y;
+            viewport-height: builds.content-height;
+            visible-height: builds.height;
+        }
+    }
+
+    // Cargando una compo desde la lista.
+    if CompsPage.loading && CompsPage.mode == 0 && CompsPage.items.length > 0: Rectangle {
+        x: parent.width - 60px;
+        y: 82px;
+        width: 30px;
+        height: 8px;
+        Dots { }
+    }
+}

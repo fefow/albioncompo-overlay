@@ -1,0 +1,339 @@
+// Piezas de la app de escritorio: íconos, tarjetas, botones, interruptores,
+// pestañas y campos. Todas animan sus cambios de estado con transiciones cortas.
+
+import { Palette, Dots } from "../theme.slint";
+
+// Colores propios de la app (el overlay usa `Palette`, más chico).
+export global Desk {
+    out property <color> bg: #110c09;
+    out property <color> sidebar: #160f0b;
+    out property <color> card: #1c140f;
+    out property <color> card-hover: #241a13;
+    out property <color> line: #33261b;
+    out property <color> line-strong: #4a3826;
+    out property <color> faint: #7d6d58;
+    out property <color> ok: #6fcf7f;
+    out property <length> radius: 10px;
+    out property <duration> quick: 140ms;
+    out property <duration> smooth: 240ms;
+}
+
+// Ícono de trazo, en el mismo formato que los de los casilleros (viewBox 24x24).
+export component Icon inherits Path {
+    in property <string> path;
+    in property <color> color: Palette.icon;
+    in property <length> size: 18px;
+    width: size;
+    height: size;
+    viewbox-width: 24;
+    viewbox-height: 24;
+    commands: path;
+    stroke: color;
+    stroke-width: 1.7px;
+    stroke-line-cap: round;
+    stroke-line-join: round;
+    fill: transparent;
+}
+
+export component Card inherits Rectangle {
+    in property <bool> hoverable;
+    in property <bool> hovered;
+    border-radius: Desk.radius;
+    border-width: 1px;
+    border-color: hoverable && hovered ? Palette.frame : Desk.line;
+    background: hoverable && hovered ? Desk.card-hover : Desk.card;
+    animate background, border-color { duration: Desk.quick; }
+}
+
+export component SectionTitle inherits Text {
+    color: Palette.muted;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: 1.4px;
+}
+
+// Botón de texto; `primary` va en dorado.
+export component DeskButton inherits Rectangle {
+    in property <string> text;
+    in property <string> icon;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    in property <bool> busy;
+    callback clicked();
+
+    height: 36px;
+    horizontal-stretch: 0;
+    min-width: max(96px, label.preferred-width + (icon != "" ? 52px : 32px));
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: primary ? (touch.has-hover && enabled ? Palette.gold-bright : Palette.gold) : (touch.has-hover ? Palette.frame : Desk.line-strong);
+    background: primary ? (touch.pressed ? #4a3720 : (touch.has-hover && enabled ? #5a4325 : #3d2d19)) : (touch.pressed ? Palette.slot-bg : (touch.has-hover ? Desk.card-hover : transparent));
+    opacity: enabled || busy ? 1.0 : 0.45;
+    animate background, border-color { duration: Desk.quick; }
+
+    HorizontalLayout {
+        alignment: center;
+        spacing: 8px;
+        padding-left: 14px;
+        padding-right: 14px;
+
+        if root.icon != "" && !root.busy: Icon {
+            y: (parent.height - self.height) / 2;
+            path: root.icon;
+            size: 15px;
+            color: root.primary ? Palette.gold-bright : Palette.text;
+        }
+
+        label := Text {
+            visible: !root.busy;
+            text: root.text;
+            color: root.primary ? Palette.gold-bright : Palette.text;
+            font-size: 12px;
+            font-weight: 700;
+            letter-spacing: 0.8px;
+            vertical-alignment: center;
+        }
+    }
+
+    if root.busy: Dots {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        dot-color: root.primary ? Palette.gold-bright : Palette.text;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled && !root.busy;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// Interruptor con la perilla que se desliza.
+export component Toggle inherits Rectangle {
+    in property <bool> on;
+    callback toggled();
+
+    width: 40px;
+    height: 22px;
+    border-radius: 11px;
+    background: on ? #5a4325 : Palette.slot-bg;
+    border-width: 1px;
+    border-color: on ? Palette.gold : (touch.has-hover ? Palette.frame : Desk.line-strong);
+    animate background, border-color { duration: Desk.smooth; }
+
+    Rectangle {
+        x: root.on ? parent.width - self.width - 3px : 3px;
+        y: 3px;
+        width: 16px;
+        height: 16px;
+        border-radius: 8px;
+        background: root.on ? Palette.gold-bright : Palette.muted;
+        animate x { duration: Desk.smooth; easing: ease-out; }
+        animate background { duration: Desk.smooth; }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.toggled(); }
+    }
+}
+
+// Fila de ajustes: texto con ayuda a la izquierda e interruptor a la derecha.
+export component OptionRow inherits Rectangle {
+    in property <string> label;
+    in property <string> help;
+    in property <bool> on;
+    callback toggled();
+
+    height: help == "" ? 44px : 58px;
+
+    HorizontalLayout {
+        spacing: 16px;
+        alignment: stretch;
+
+        VerticalLayout {
+            alignment: center;
+            spacing: 3px;
+            horizontal-stretch: 1;
+
+            Text {
+                text: root.label;
+                color: Palette.text;
+                font-size: 13px;
+                wrap: word-wrap;
+            }
+
+            if root.help != "": Text {
+                text: root.help;
+                color: Desk.faint;
+                font-size: 11px;
+                wrap: word-wrap;
+            }
+        }
+
+        VerticalLayout {
+            alignment: center;
+            Toggle {
+                on: root.on;
+                toggled => { root.toggled(); }
+            }
+        }
+    }
+}
+
+// Pestañas con un fondo que se desliza a la elegida.
+export component Tabs inherits Rectangle {
+    in property <[string]> labels;
+    in-out property <int> current;
+    in property <length> tab-width: 128px;
+    callback changed(int);
+
+    width: tab-width * labels.length + 8px;
+    height: 36px;
+    border-radius: 9px;
+    background: Palette.slot-bg;
+    border-width: 1px;
+    border-color: Desk.line;
+
+    Rectangle {
+        x: 4px + root.current * root.tab-width;
+        y: 4px;
+        width: root.tab-width;
+        height: parent.height - 8px;
+        border-radius: 6px;
+        background: #3d2d19;
+        border-width: 1px;
+        border-color: Palette.frame;
+        animate x { duration: Desk.smooth; easing: ease-out; }
+    }
+
+    for label[i] in root.labels: Rectangle {
+        x: 4px + i * root.tab-width;
+        y: 4px;
+        width: root.tab-width;
+        height: parent.height - 8px;
+
+        Text {
+            text: label;
+            color: root.current == i ? Palette.gold-bright : (tab-touch.has-hover ? Palette.text : Palette.muted);
+            font-size: 12px;
+            font-weight: 700;
+            horizontal-alignment: center;
+            vertical-alignment: center;
+            animate color { duration: Desk.quick; }
+        }
+
+        tab-touch := TouchArea {
+            mouse-cursor: pointer;
+            clicked => {
+                if root.current != i {
+                    root.current = i;
+                    root.changed(i);
+                }
+            }
+        }
+    }
+}
+
+// Campo de una línea con ícono opcional a la izquierda.
+export component SearchField inherits Rectangle {
+    in property <string> placeholder;
+    in property <string> icon;
+    in property <bool> upper;
+    in-out property <string> text;
+    callback accepted();
+
+    height: 38px;
+    border-radius: 8px;
+    border-width: 1px;
+    border-color: input.has-focus ? Palette.gold : (touch.has-hover ? Palette.frame : Desk.line-strong);
+    background: Palette.slot-bg;
+    forward-focus: input;
+    animate border-color { duration: Desk.quick; }
+
+    property <length> pad: root.icon != "" ? 38px : 12px;
+
+    touch := TouchArea {
+        mouse-cursor: MouseCursor.text;
+        clicked => { input.focus(); }
+    }
+
+    if root.icon != "": Icon {
+        x: 12px;
+        y: (parent.height - self.height) / 2;
+        path: root.icon;
+        size: 16px;
+        color: input.has-focus ? Palette.gold : Desk.faint;
+    }
+
+    if root.text == "": Text {
+        x: root.pad;
+        width: parent.width - root.pad - 12px;
+        height: parent.height;
+        text: root.placeholder;
+        color: Desk.faint;
+        font-size: 13px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    input := TextInput {
+        x: root.pad;
+        width: parent.width - root.pad - 12px;
+        height: parent.height;
+        text <=> root.text;
+        color: Palette.text;
+        selection-background-color: #6b5230;
+        font-size: 13px;
+        vertical-alignment: center;
+        single-line: true;
+        accepted => { root.accepted(); }
+        edited => {
+            if root.upper && self.text != self.text.to-uppercase() {
+                self.text = self.text.to-uppercase();
+            }
+        }
+    }
+}
+
+// Etiqueta chica con borde (actividad, "Privada"...).
+export component Badge inherits Rectangle {
+    in property <string> text;
+    in property <color> accent: Palette.gold;
+    height: 20px;
+    width: badge-text.preferred-width + 14px;
+    border-radius: 10px;
+    background: accent.with-alpha(0.12);
+    border-width: 1px;
+    border-color: accent.with-alpha(0.45);
+
+    badge-text := Text {
+        text: root.text;
+        color: root.accent;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.6px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+}
+
+// Contenedor de una página o vista: entra con un fundido y un desplazamiento
+// corto. Las que no están activas no se dibujan.
+export component Reveal inherits Rectangle {
+    in property <bool> active;
+    in property <length> offset: 14px;
+    property <length> shift: active ? 0px : offset;
+    opacity: active ? 1 : 0;
+    visible: self.opacity > 0.01;
+    animate opacity { duration: Desk.smooth; easing: ease-out; }
+    animate shift { duration: Desk.smooth; easing: ease-out; }
+
+    Rectangle {
+        x: 0;
+        y: root.shift;
+        width: parent.width;
+        height: parent.height;
+        @children
+    }
+}

@@ -1,0 +1,394 @@
+// App de escritorio de AlbionCompo: ventana sin marco con barra lateral,
+// barra de título propia y las secciones. El overlay sigue siendo aparte y se
+// activa solo con el juego en primer plano.
+//
+// Para sumar una sección: su vista en ui/desk/<sección>.slint con su global en
+// state.slint, una entrada en `Section` (src/desk/mod.rs) y un `Reveal` acá.
+
+import { Palette } from "../theme.slint";
+import { Desk, Icon, Reveal } from "widgets.slint";
+import { DeskTr, DeskShell, HomePage, CompsPage, SettingsPage, NavItem, HotkeyRow, DeskComp, DeskBuild } from "state.slint";
+import { HomeView } from "home.slint";
+import { ComposView } from "compos.slint";
+import { SettingsView } from "settings.slint";
+
+export { DeskTr, DeskShell, HomePage, CompsPage, SettingsPage, NavItem, HotkeyRow, DeskComp, DeskBuild }
+
+component NavButton inherits Rectangle {
+    in property <NavItem> item;
+    in property <bool> selected;
+    callback clicked();
+
+    height: 42px;
+    border-radius: 8px;
+    background: touch.has-hover && !selected ? Desk.card : transparent;
+    animate background { duration: Desk.quick; }
+
+    Icon {
+        x: 16px;
+        y: (parent.height - self.height) / 2;
+        path: root.item.icon;
+        size: 18px;
+        color: root.selected ? Palette.gold-bright : (touch.has-hover ? Palette.text : Palette.muted);
+        animate color { duration: Desk.quick; }
+    }
+
+    Text {
+        x: 46px;
+        width: parent.width - 54px;
+        height: parent.height;
+        text: root.item.label;
+        color: root.selected ? Palette.gold-bright : (touch.has-hover ? Palette.text : Palette.muted);
+        font-size: 13px;
+        font-weight: root.selected ? 700 : 500;
+        vertical-alignment: center;
+        overflow: elide;
+        animate color { duration: Desk.quick; }
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component WindowButton inherits Rectangle {
+    in property <string> icon;
+    in property <bool> danger;
+    callback clicked();
+
+    width: 46px;
+    height: 36px;
+    background: touch.has-hover ? (danger ? #c42b1c : Desk.card-hover) : transparent;
+    animate background { duration: 100ms; }
+
+    Icon {
+        x: (parent.width - self.width) / 2;
+        y: (parent.height - self.height) / 2;
+        path: root.icon;
+        size: 14px;
+        color: touch.has-hover ? Palette.text : Palette.muted;
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+    }
+}
+
+// Borde invisible para cambiar el tamaño de la ventana sin marco.
+component ResizeEdge inherits TouchArea {
+    in property <int> direction;
+    pointer-event(e) => {
+        if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+            DeskShell.resize(self.direction);
+        }
+    }
+}
+
+export component AppWindow inherits Window {
+    title: "AlbionCompo";
+    icon: @image-url("../../assets/brand-mark-96.png");
+    no-frame: true;
+    background: Desk.bg;
+    preferred-width: 1120px;
+    preferred-height: 720px;
+    min-width: 900px;
+    min-height: 580px;
+
+    property <length> sidebar-width: 220px;
+    property <length> title-height: 52px;
+
+    // Barra lateral.
+    Rectangle {
+        x: 0;
+        y: 0;
+        width: root.sidebar-width;
+        height: parent.height;
+        background: Desk.sidebar;
+
+        Rectangle {
+            x: parent.width - 1px;
+            width: 1px;
+            background: Desk.line;
+        }
+
+        // Logo y nombre (también sirve para arrastrar la ventana).
+        Rectangle {
+            x: 0;
+            y: 0;
+            width: parent.width;
+            height: 72px;
+
+            TouchArea {
+                pointer-event(e) => {
+                    if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                        DeskShell.drag();
+                    }
+                }
+            }
+
+            Image {
+                x: 18px;
+                y: 18px;
+                width: 36px;
+                height: 36px;
+                source: @image-url("../../assets/brand-mark-96.png");
+                image-fit: contain;
+            }
+
+            Text {
+                x: 64px;
+                y: 18px;
+                height: 36px;
+                text: "AlbionCompo";
+                color: Palette.gold-bright;
+                font-size: 16px;
+                font-weight: 700;
+                vertical-alignment: center;
+            }
+        }
+
+        // Navegación, con un indicador que se desliza a la sección elegida.
+        Rectangle {
+            x: 10px;
+            y: 84px + DeskShell.page * 46px;
+            width: root.sidebar-width - 20px;
+            height: 42px;
+            border-radius: 8px;
+            background: #2a1f15;
+            border-width: 1px;
+            border-color: Desk.line-strong;
+            animate y { duration: Desk.smooth; easing: ease-out; }
+
+            Rectangle {
+                x: 0;
+                y: 10px;
+                width: 3px;
+                height: parent.height - 20px;
+                border-radius: 1.5px;
+                background: Palette.gold;
+            }
+        }
+
+        for item[i] in DeskShell.nav: NavButton {
+            x: 10px;
+            y: 84px + i * 46px;
+            width: root.sidebar-width - 20px;
+            item: item;
+            selected: DeskShell.page == i;
+            clicked => { DeskShell.navigate(i); }
+        }
+
+        // Estado del juego, abajo.
+        Rectangle {
+            x: 10px;
+            y: parent.height - 62px;
+            width: root.sidebar-width - 20px;
+            height: 48px;
+            border-radius: 8px;
+            background: DeskShell.game-running ? Desk.ok.with-alpha(0.08) : Desk.card;
+            border-width: 1px;
+            border-color: DeskShell.game-running ? Desk.ok.with-alpha(0.35) : Desk.line;
+            animate background, border-color { duration: Desk.smooth; }
+
+            Rectangle {
+                x: 14px;
+                y: (parent.height - self.height) / 2;
+                width: 8px;
+                height: 8px;
+                border-radius: 4px;
+                background: DeskShell.game-running ? Desk.ok : Desk.faint;
+                animate background { duration: Desk.smooth; }
+            }
+
+            VerticalLayout {
+                x: 32px;
+                width: parent.width - 40px;
+                alignment: center;
+                spacing: 1px;
+
+                Text {
+                    text: DeskTr.game-title;
+                    color: Palette.muted;
+                    font-size: 10px;
+                    font-weight: 700;
+                    letter-spacing: 1px;
+                }
+
+                Text {
+                    text: DeskShell.game-running ? DeskTr.game-running : DeskTr.game-closed;
+                    color: DeskShell.game-running ? Desk.ok : Palette.text;
+                    font-size: 12px;
+                    font-weight: 700;
+                }
+            }
+        }
+    }
+
+    // Barra de título: nombre de la sección, arrastre y botones de la ventana.
+    Rectangle {
+        x: root.sidebar-width;
+        y: 0;
+        width: parent.width - root.sidebar-width;
+        height: root.title-height;
+
+        TouchArea {
+            pointer-event(e) => {
+                if e.button == PointerEventButton.left && e.kind == PointerEventKind.down {
+                    DeskShell.drag();
+                }
+            }
+            double-clicked => { DeskShell.toggle-maximize(); }
+        }
+
+        for item[i] in DeskShell.nav: Text {
+            x: 28px;
+            y: DeskShell.page == i ? 0px : 6px;
+            height: parent.height;
+            text: item.label;
+            color: Palette.text;
+            font-size: 20px;
+            font-weight: 700;
+            vertical-alignment: center;
+            opacity: DeskShell.page == i ? 1 : 0;
+            animate opacity, y { duration: Desk.smooth; easing: ease-out; }
+        }
+
+        HorizontalLayout {
+            x: parent.width - 138px;
+            y: 0;
+            width: 138px;
+            height: 36px;
+
+            WindowButton {
+                icon: "M6 12h12";
+                clicked => { DeskShell.minimize(); }
+            }
+
+            WindowButton {
+                icon: DeskShell.maximized ? "M8 8h10v10H8zM6 16V6h10" : "M6 6h12v12H6z";
+                clicked => { DeskShell.toggle-maximize(); }
+            }
+
+            WindowButton {
+                icon: "M6 6l12 12M18 6L6 18";
+                danger: true;
+                clicked => { DeskShell.close(); }
+            }
+        }
+
+        Rectangle {
+            x: 0;
+            y: parent.height - 1px;
+            width: parent.width;
+            height: 1px;
+            background: Desk.line;
+        }
+    }
+
+    // Secciones (mismo orden que `Section` en src/desk/mod.rs).
+    Rectangle {
+        x: root.sidebar-width;
+        y: root.title-height;
+        width: parent.width - root.sidebar-width;
+        height: parent.height - root.title-height;
+        clip: true;
+
+        Reveal {
+            width: parent.width;
+            height: parent.height;
+            active: DeskShell.page == 0;
+            HomeView {
+                width: parent.width;
+                height: parent.height;
+                go-compos => { DeskShell.navigate(1); }
+            }
+        }
+
+        Reveal {
+            width: parent.width;
+            height: parent.height;
+            active: DeskShell.page == 1;
+            ComposView {
+                width: parent.width;
+                height: parent.height;
+            }
+        }
+
+        Reveal {
+            width: parent.width;
+            height: parent.height;
+            active: DeskShell.page == 2;
+            SettingsView {
+                width: parent.width;
+                height: parent.height;
+            }
+        }
+    }
+
+    // Bordes para cambiar el tamaño (no hacen falta maximizada).
+    if !DeskShell.maximized: ResizeEdge {
+        x: 6px;
+        y: 0;
+        width: parent.width - 12px;
+        height: 4px;
+        direction: 0;
+        mouse-cursor: n-resize;
+    }
+    if !DeskShell.maximized: ResizeEdge {
+        x: 6px;
+        y: parent.height - 4px;
+        width: parent.width - 12px;
+        height: 4px;
+        direction: 1;
+        mouse-cursor: s-resize;
+    }
+    if !DeskShell.maximized: ResizeEdge {
+        x: parent.width - 4px;
+        y: 6px;
+        width: 4px;
+        height: parent.height - 12px;
+        direction: 2;
+        mouse-cursor: e-resize;
+    }
+    if !DeskShell.maximized: ResizeEdge {
+        x: 0;
+        y: 6px;
+        width: 4px;
+        height: parent.height - 12px;
+        direction: 3;
+        mouse-cursor: w-resize;
+    }
+    if !DeskShell.maximized: ResizeEdge {
+        x: parent.width - 6px;
+        y: 0;
+        width: 6px;
+        height: 6px;
+        direction: 4;
+        mouse-cursor: ne-resize;
+    }
+    if !DeskShell.maximized: ResizeEdge {
+        x: 0;
+        y: 0;
+        width: 6px;
+        height: 6px;
+        direction: 5;
+        mouse-cursor: nw-resize;
+    }
+    if !DeskShell.maximized: ResizeEdge {
+        x: parent.width - 8px;
+        y: parent.height - 8px;
+        width: 8px;
+        height: 8px;
+        direction: 6;
+        mouse-cursor: se-resize;
+    }
+    if !DeskShell.maximized: ResizeEdge {
+        x: 0;
+        y: parent.height - 6px;
+        width: 6px;
+        height: 6px;
+        direction: 7;
+        mouse-cursor: sw-resize;
+    }
+}

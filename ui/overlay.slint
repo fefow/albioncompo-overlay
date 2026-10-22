@@ -1,0 +1,1471 @@
+// UI del overlay, con colores y marcos inspirados en la interfaz de Albion:
+// marrones oscuros, bordes dorados y texto pergamino.
+// Las ventanas del overlay no tienen marco ni transparencia: las esquinas
+// redondeadas las recorta Windows con una región (SetWindowRgn).
+
+import { Palette, Tr, Dots, Slot, SlotView } from "theme.slint";
+export { Tr, Slot }
+export { AppWindow, DeskTr, DeskShell, HomePage, CompsPage, SettingsPage } from "desk/app.slint";
+
+export struct CompRow {
+    name: string,
+    meta: string,
+}
+
+export struct BuildRow {
+    name: string,
+    role: string,
+    role-color: color,
+    image: image,
+    has-image: bool,
+    selected: bool,
+}
+
+export struct Member {
+    name: string,
+    role: string,
+    role-color: color,
+    assigned: bool,
+    me: bool,
+    image: image,
+    has-image: bool,
+}
+
+component PartyButton inherits Rectangle {
+    in property <bool> active;
+    in property <string> count;
+    callback clicked();
+    callback right-clicked();
+
+    width: 38px;
+    height: 38px;
+    border-radius: 4px;
+    border-width: 1px;
+    background: touch.has-hover || active ? Palette.slot-hover : Palette.slot-bg;
+    border-color: active ? Palette.gold-bright : Palette.frame;
+
+    Path {
+        y: 7px;
+        width: 20px;
+        height: 18px;
+        viewbox-width: 24;
+        viewbox-height: 22;
+        commands: "M9 9a3.5 3.5 0 1 0 0-7a3.5 3.5 0 1 0 0 7M2 20c0-4 3-6.5 7-6.5s7 2.5 7 6.5M16 2.6a3.5 3.5 0 0 1 0 6.8M18.5 13.8c2.2.8 3.5 2.9 3.5 6.2";
+        stroke: active || touch.has-hover ? Palette.gold-bright : Palette.gold;
+        stroke-width: 1.7px;
+        stroke-line-cap: round;
+        fill: transparent;
+    }
+
+    Text {
+        y: parent.height - self.height - 1px;
+        text: count;
+        color: Palette.gold;
+        font-size: 9px;
+        font-weight: 700;
+        horizontal-alignment: center;
+        width: parent.width;
+    }
+
+    touch := TouchArea {
+        clicked => { root.clicked(); }
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                root.right-clicked();
+            }
+        }
+    }
+}
+
+export component OverlayWindow inherits Window {
+    in property <bool> pill-mode;
+    in property <bool> click-through;
+    in property <[Slot]> slots;
+    in property <string> role;
+    in property <color> role-color;
+    in property <string> main-name;
+    in property <string> main-tier;
+    in property <color> main-tier-color;
+    // Nombre de la build asignada (segunda línea de la celda del rol).
+    in property <string> build-name;
+    // Mensaje cuando no hay build para mostrar (sin código, esperando, expirada...).
+    in property <string> status-text;
+    in property <color> status-color: Palette.muted;
+    in property <bool> party-open;
+    in property <string> party-count;
+    // Muestra los puntos de carga junto al mensaje.
+    in property <bool> loading;
+    // Ancho de la zona de mensaje cuando no hay casilleros (8 casilleros).
+    in property <length> message-width: 332px;
+    in-out property <int> hovered-slot: -1;
+
+    // index, true al entrar / false al salir.
+    callback slot-hover(int, bool);
+    callback party-clicked();
+    callback open-setup();
+    // Clic en el mensaje (abre el ingreso si no hay código, o reintenta).
+    callback status-clicked();
+
+    title: "AlbionCompo";
+    no-frame: true;
+    always-on-top: true;
+    default-font-family: "Segoe UI";
+    background: Palette.bg;
+
+    // Marco doble como los paneles del juego (la región recorta las esquinas).
+    Rectangle {
+        border-width: 1px;
+        border-radius: pill-mode ? 17px : 7px;
+        border-color: click-through ? Palette.gold-bright : Palette.frame;
+
+        Rectangle {
+            x: 2px;
+            y: 2px;
+            width: parent.width - 4px;
+            height: parent.height - 4px;
+            border-width: 1px;
+            border-radius: pill-mode ? 15px : 5px;
+            border-color: #2b2016;
+        }
+    }
+
+    if pill-mode: HorizontalLayout {
+        padding-left: 14px;
+        padding-right: 14px;
+        spacing: 9px;
+
+        Rectangle {
+            width: 8px;
+            height: 8px;
+            y: (parent.height - self.height) / 2;
+            border-radius: 4px;
+            background: root.role-color;
+        }
+
+        Text {
+            text: root.role;
+            color: root.role-color;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1.4px;
+            vertical-alignment: center;
+        }
+
+        Rectangle {
+            width: 1px;
+            height: 14px;
+            y: (parent.height - self.height) / 2;
+            background: Palette.border;
+        }
+
+        Text {
+            text: root.slots.length > 0 ? root.main-name : root.status-text;
+            color: root.slots.length > 0 ? Palette.text : root.status-color;
+            font-size: 12.5px;
+            vertical-alignment: center;
+            overflow: elide;
+            horizontal-stretch: 1;
+        }
+
+        if root.slots.length > 0: Text {
+            text: root.main-tier;
+            color: root.main-tier-color;
+            font-size: 11px;
+            font-weight: 700;
+            vertical-alignment: center;
+        }
+
+    }
+
+    if pill-mode: TouchArea {
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                root.open-setup();
+            }
+        }
+    }
+
+    if !pill-mode: HorizontalLayout {
+        padding-left: 9px;
+        padding-right: 9px;
+        padding-top: 8px;
+        padding-bottom: 8px;
+        spacing: 4px;
+
+        // Celda del rol: lo que asignó el líder, antes de los ítems.
+        if root.slots.length > 0: Rectangle {
+            width: 84px;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: Palette.border;
+            background: Palette.slot-bg;
+
+            Rectangle {
+                x: 1px;
+                y: 5px;
+                width: 3px;
+                height: parent.height - 10px;
+                border-radius: 1.5px;
+                background: root.role-color;
+            }
+
+            VerticalLayout {
+                padding-left: 10px;
+                padding-right: 5px;
+                alignment: center;
+                spacing: 1px;
+
+                Text {
+                    text: root.role != "" ? root.role : Tr.no-role;
+                    color: root.role-color;
+                    font-size: 10px;
+                    font-weight: 700;
+                    letter-spacing: 0.8px;
+                    overflow: elide;
+                }
+
+                if root.build-name != "": Text {
+                    text: root.build-name;
+                    color: Palette.muted;
+                    font-size: 10px;
+                    overflow: elide;
+                }
+            }
+
+            TouchArea {
+                pointer-event(e) => {
+                    if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                        root.open-setup();
+                    }
+                }
+            }
+        }
+
+        for slot[i] in root.slots: SlotView {
+            slot: slot;
+            hovered: root.hovered-slot == i;
+
+            TouchArea {
+                changed has-hover => {
+                    root.hovered-slot = self.has-hover ? i : (root.hovered-slot == i ? -1 : root.hovered-slot);
+                    root.slot-hover(i, self.has-hover);
+                }
+                pointer-event(e) => {
+                    if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                        root.open-setup();
+                    }
+                }
+            }
+        }
+
+        if root.slots.length == 0: Rectangle {
+            width: root.message-width;
+            border-radius: 4px;
+            background: message-touch.has-hover ? Palette.slot-hover : Palette.slot-bg;
+            border-width: 1px;
+            border-color: Palette.border;
+
+            HorizontalLayout {
+                padding-left: 12px;
+                padding-right: 12px;
+                spacing: 8px;
+
+                if root.role != "": Rectangle {
+                    width: 8px;
+                    height: 8px;
+                    y: (parent.height - self.height) / 2;
+                    border-radius: 4px;
+                    background: root.role-color;
+                }
+
+                if root.role != "": Text {
+                    text: root.role;
+                    color: root.role-color;
+                    font-size: 10px;
+                    font-weight: 700;
+                    letter-spacing: 1.2px;
+                    vertical-alignment: center;
+                }
+
+                Text {
+                    text: root.status-text;
+                    color: root.status-color;
+                    font-size: 12px;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+
+                if root.loading: Dots {
+                    y: (parent.height - self.height) / 2;
+                }
+            }
+
+            message-touch := TouchArea {
+                clicked => { root.status-clicked(); }
+                pointer-event(e) => {
+                    if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                        root.open-setup();
+                    }
+                }
+            }
+        }
+
+        PartyButton {
+            active: root.party-open;
+            count: root.party-count;
+            clicked => { root.party-clicked(); }
+            right-clicked => { root.open-setup(); }
+        }
+    }
+}
+
+// Tooltip: ventana aparte que se crea ~300 ms después del hover y se destruye al salir.
+export component TooltipWindow inherits Window {
+    in property <string> item-name;
+    in property <string> slot-label;
+    in property <string> tier;
+    in property <color> tier-color;
+    in property <string> alt-name;
+
+    title: "AlbionCompo";
+    no-frame: true;
+    always-on-top: true;
+    default-font-family: "Segoe UI";
+    background: Palette.tooltip-bg;
+
+    Rectangle {
+        border-width: 1px;
+        border-radius: 6px;
+        border-color: Palette.frame;
+    }
+
+    VerticalLayout {
+        padding-left: 11px;
+        padding-right: 11px;
+        padding-top: 7px;
+        padding-bottom: 7px;
+        spacing: 2px;
+
+        Text {
+            text: root.item-name;
+            color: Palette.gold-bright;
+            font-size: 13px;
+            font-weight: 600;
+        }
+
+        HorizontalLayout {
+            alignment: start;
+
+            Text {
+                text: root.slot-label;
+                color: Palette.muted;
+                font-size: 11px;
+            }
+
+            if root.tier != "": Text {
+                text: " · ";
+                color: Palette.muted;
+                font-size: 11px;
+            }
+
+            if root.tier != "": Text {
+                text: "T" + root.tier;
+                color: root.tier-color;
+                font-size: 11px;
+                font-weight: 700;
+            }
+        }
+
+        if root.alt-name != "": Text {
+            text: Tr.alternative + root.alt-name;
+            color: Palette.muted;
+            font-size: 11px;
+            font-italic: true;
+        }
+    }
+}
+
+// Panel de la party: se despliega con el botón de la derecha de la tira.
+export component PartyWindow inherits Window {
+    in property <string> heading;
+    in property <string> subheading;
+    in property <[Member]> members;
+
+    title: "AlbionCompo";
+    no-frame: true;
+    always-on-top: true;
+    default-font-family: "Segoe UI";
+    background: Palette.bg;
+
+    Rectangle {
+        border-width: 1px;
+        border-radius: 7px;
+        border-color: Palette.frame;
+    }
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 2px;
+        alignment: start;
+
+        Text {
+            text: root.heading;
+            color: Palette.gold;
+            font-size: 11px;
+            font-weight: 700;
+            letter-spacing: 1.4px;
+            overflow: elide;
+        }
+
+        Text {
+            text: root.subheading;
+            color: Palette.muted;
+            font-size: 11px;
+        }
+
+        Rectangle {
+            height: 7px;
+
+            Rectangle {
+                y: 3px;
+                height: 1px;
+                background: Palette.border;
+            }
+        }
+
+        for member in root.members: Rectangle {
+            height: 26px;
+            border-radius: 3px;
+            background: member.me ? #2a1f16 : transparent;
+
+            HorizontalLayout {
+                padding-left: 4px;
+                padding-right: 6px;
+                spacing: 7px;
+
+                Rectangle {
+                    width: 22px;
+                    height: 22px;
+                    y: 2px;
+                    border-radius: 3px;
+                    border-width: 1px;
+                    border-color: Palette.border;
+                    background: Palette.slot-bg;
+
+                    if member.has-image: Image {
+                        x: 1px;
+                        y: 1px;
+                        width: 20px;
+                        height: 20px;
+                        source: member.image;
+                        image-fit: contain;
+                    }
+
+                    if !member.has-image: Rectangle {
+                        width: 6px;
+                        height: 6px;
+                        border-radius: 3px;
+                        background: member.role-color;
+                    }
+                }
+
+                Text {
+                    text: member.name;
+                    color: member.me ? Palette.gold-bright : (member.assigned ? Palette.text : Palette.muted);
+                    font-size: 12px;
+                    font-weight: member.me ? 700 : 400;
+                    vertical-alignment: center;
+                    overflow: elide;
+                    horizontal-stretch: 1;
+                }
+
+                Text {
+                    text: member.role;
+                    color: member.role-color;
+                    font-size: 10px;
+                    font-weight: 700;
+                    letter-spacing: 0.8px;
+                    vertical-alignment: center;
+                }
+            }
+        }
+    }
+}
+
+component Field inherits Rectangle {
+    in property <string> label;
+    in property <string> placeholder;
+    in-out property <string> text;
+    in property <bool> enabled: true;
+    in property <bool> upper;
+    // Campo grande y centrado (el código).
+    in property <bool> big;
+    callback accepted();
+    callback edited(string);
+
+    height: big ? 66px : 52px;
+    forward-focus: input;
+
+    VerticalLayout {
+        spacing: 4px;
+
+        Text {
+            text: root.label;
+            color: Palette.muted;
+            font-size: 10px;
+            font-weight: 700;
+            letter-spacing: 1.2px;
+        }
+
+        Rectangle {
+            height: root.big ? 46px : 32px;
+            border-radius: 4px;
+            border-width: 1px;
+            border-color: input.has-focus ? Palette.gold : Palette.border;
+            background: Palette.slot-bg;
+            animate border-color { duration: 160ms; }
+
+            if root.text == "" && !input.has-focus: Text {
+                x: 10px;
+                width: parent.width - 20px;
+                text: root.placeholder;
+                color: #6d5f4b;
+                font-size: root.big ? 22px : 13px;
+                letter-spacing: root.big ? 6px : 0px;
+                horizontal-alignment: root.big ? center : left;
+                vertical-alignment: center;
+                height: parent.height;
+            }
+
+            input := TextInput {
+                x: 10px;
+                width: parent.width - 20px;
+                height: parent.height;
+                text <=> root.text;
+                enabled: root.enabled;
+                color: Palette.text;
+                selection-background-color: #6b5230;
+                font-size: root.big ? 22px : 13px;
+                font-weight: root.big ? 600 : 400;
+                letter-spacing: root.big ? 6px : 0px;
+                horizontal-alignment: root.big ? center : left;
+                vertical-alignment: center;
+                single-line: true;
+                accepted => { root.accepted(); }
+                edited => {
+                    if root.upper && self.text != self.text.to-uppercase() {
+                        self.text = self.text.to-uppercase();
+                    }
+                    root.edited(self.text);
+                }
+            }
+        }
+    }
+
+    public function focus-input() {
+        input.focus();
+    }
+}
+
+component Chip inherits Rectangle {
+    in property <string> text;
+    in property <bool> selected;
+    in property <color> accent: Palette.gold;
+    in property <bool> enabled: true;
+    callback clicked();
+
+    height: 28px;
+    min-width: chip-text.preferred-width + 22px;
+    border-radius: 14px;
+    border-width: 1px;
+    border-color: selected ? accent : (touch.has-hover ? Palette.frame : Palette.border);
+    background: selected ? accent.with-alpha(0.16) : (touch.has-hover ? Palette.slot-hover : Palette.slot-bg);
+    opacity: enabled ? 1.0 : 0.5;
+    animate background, border-color { duration: 140ms; }
+
+    chip-text := Text {
+        text: root.text;
+        color: root.selected ? root.accent : (touch.has-hover ? Palette.text : Palette.muted);
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.8px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+        animate color { duration: 140ms; }
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+component Button inherits Rectangle {
+    in property <string> text;
+    in property <bool> primary;
+    in property <bool> enabled: true;
+    in property <bool> busy;
+    callback clicked();
+
+    height: 36px;
+    min-width: 88px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: primary ? (touch.has-hover && enabled ? Palette.gold-bright : Palette.gold) : (touch.has-hover ? Palette.frame : Palette.border);
+    background: primary ? (touch.has-hover && enabled ? #5a4325 : #3d2d19) : (touch.has-hover ? Palette.slot-hover : Palette.slot-bg);
+    opacity: enabled || busy ? 1.0 : 0.5;
+    animate background, border-color { duration: 140ms; }
+
+    if !root.busy: Text {
+        text: root.text;
+        color: root.primary ? Palette.gold-bright : Palette.text;
+        font-size: 11px;
+        font-weight: 700;
+        letter-spacing: 1.4px;
+        horizontal-alignment: center;
+        vertical-alignment: center;
+    }
+
+    if root.busy: Dots {
+        dot-color: root.primary ? Palette.gold-bright : Palette.text;
+    }
+
+    touch := TouchArea {
+        enabled: root.enabled && !root.busy;
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+    }
+}
+
+// Ventana para entrar a una asignación, en dos pasos: primero solo el código y,
+// si existe, el registro (nombre y roles). Es una ventana normal (con foco)
+// porque hay que escribir; se usa fuera de las peleas.
+export component SetupWindow inherits Window {
+    // 0: código, 1: registro, 2: idioma (solo la primera vez).
+    in-out property <int> step: 0;
+    in-out property <string> code;
+    in-out property <string> name;
+    // Roles elegidos como bits (1 = TANK, 2 = HEALER, 4 = SUPPORT...).
+    in-out property <int> role-mask: 0;
+    in-out property <int> lang-index: 0;
+    in property <string> error-text;
+    in property <string> info-text;
+    in property <string> assignment-name;
+    in property <string> assignment-detail;
+    in property <bool> busy;
+    in property <bool> joined;
+    in property <[color]> role-colors: [#6aa8ff, #45d6a0, #f0a830, #ff9a62, #ff7a6b, #c9b48f];
+
+    callback check-code();
+    callback submit();
+    callback back();
+    callback leave();
+    callback close-clicked();
+    callback lang-changed(int);
+    callback lang-picked(int);
+
+    public function focus-code() {
+        code-field.focus-input();
+    }
+
+    public function focus-name() {
+        name-field.focus-input();
+    }
+
+    title: "AlbionCompo";
+    always-on-top: true;
+    default-font-family: "Segoe UI";
+    background: Palette.bg;
+    width: 400px;
+    height: 470px;
+
+    forward-focus: code-field;
+
+    // Entrada suave de la ventana.
+    property <bool> shown;
+    init => { shown = true; }
+
+    function role-on(i: int) -> bool {
+        return Math.mod(Math.floor(root.role-mask / Math.pow(2, i)), 2) == 1;
+    }
+
+    function toggle-role(i: int) {
+        root.role-mask = root.role-on(i) ? root.role-mask - Math.pow(2, i) : root.role-mask + Math.pow(2, i);
+    }
+
+    Rectangle {
+        border-width: 1px;
+        border-color: Palette.border;
+    }
+
+    // Línea dorada arriba, como los paneles del juego.
+    Rectangle {
+        y: 0;
+        height: 2px;
+        background: @linear-gradient(90deg, transparent 0%, Palette.gold 50%, transparent 100%);
+        opacity: 0.7;
+    }
+
+    content := Rectangle {
+        opacity: root.shown ? 1 : 0;
+        y: root.shown ? 0 : 10px;
+        animate opacity { duration: 260ms; easing: ease-out; }
+        animate y { duration: 260ms; easing: ease-out; }
+
+        // Encabezado: marca e idioma (cambia la interfaz y los nombres de ítems).
+        HorizontalLayout {
+            y: 16px;
+            x: 22px;
+            width: parent.width - 44px;
+            height: 28px;
+            spacing: 6px;
+
+            Text {
+                text: "ALBIONCOMPO";
+                color: Palette.gold;
+                font-size: 12px;
+                font-weight: 700;
+                letter-spacing: 2.4px;
+                vertical-alignment: center;
+                horizontal-stretch: 1;
+            }
+
+            for lang[i] in ["ES", "EN", "PT"]: Chip {
+                text: lang;
+                visible: root.step != 2;
+                selected: root.lang-index == i;
+                clicked => {
+                    if root.lang-index != i {
+                        root.lang-index = i;
+                        root.lang-changed(i);
+                    }
+                }
+            }
+        }
+
+        // Primera vez: idioma. Los tres textos van en su idioma.
+        Rectangle {
+            x: root.step == 2 ? 0 : -60px;
+            opacity: root.step == 2 ? 1 : 0;
+            visible: self.opacity > 0.01;
+            animate x { duration: 240ms; easing: ease-out; }
+            animate opacity { duration: 200ms; }
+
+            VerticalLayout {
+                padding-left: 22px;
+                padding-right: 22px;
+                padding-top: 74px;
+                padding-bottom: 20px;
+                spacing: 10px;
+
+                Text {
+                    text: "Elegí tu idioma";
+                    color: Palette.gold-bright;
+                    font-size: 22px;
+                    font-weight: 600;
+                }
+
+                Text {
+                    text: "Choose your language · Escolha seu idioma";
+                    color: Palette.muted;
+                    font-size: 12px;
+                }
+
+                Rectangle {
+                    height: 8px;
+                }
+
+                for lang[i] in [
+                    { name: "Español", detail: "Interfaz y nombres de ítems en español" },
+                    { name: "English", detail: "Interface and item names in English" },
+                    { name: "Português", detail: "Interface e nomes de itens em português" },
+                ]: Rectangle {
+                    height: 58px;
+                    border-radius: 5px;
+                    border-width: 1px;
+                    border-color: lang-touch.has-hover || root.lang-index == i ? Palette.gold : Palette.border;
+                    background: lang-touch.has-hover ? Palette.slot-hover : Palette.slot-bg;
+                    animate border-color, background { duration: 140ms; }
+
+                    VerticalLayout {
+                        padding-left: 16px;
+                        padding-right: 16px;
+                        alignment: center;
+                        spacing: 2px;
+
+                        Text {
+                            text: lang.name;
+                            color: lang-touch.has-hover ? Palette.gold-bright : Palette.text;
+                            font-size: 15px;
+                            font-weight: 600;
+                        }
+
+                        Text {
+                            text: lang.detail;
+                            color: Palette.muted;
+                            font-size: 11px;
+                        }
+                    }
+
+                    lang-touch := TouchArea {
+                        mouse-cursor: pointer;
+                        clicked => { root.lang-picked(i); }
+                    }
+                }
+
+                Rectangle {
+                    vertical-stretch: 1;
+                }
+            }
+        }
+
+        // Paso 1: código.
+        Rectangle {
+            x: root.step == 0 ? 0 : (root.step == 2 ? 60px : -60px);
+            opacity: root.step == 0 ? 1 : 0;
+            visible: self.opacity > 0.01;
+            animate x { duration: 240ms; easing: ease-out; }
+            animate opacity { duration: 200ms; }
+
+            VerticalLayout {
+                padding-left: 22px;
+                padding-right: 22px;
+                padding-top: 74px;
+                padding-bottom: 20px;
+                spacing: 12px;
+
+                Text {
+                    text: Tr.code-title;
+                    color: Palette.gold-bright;
+                    font-size: 22px;
+                    font-weight: 600;
+                }
+
+                Text {
+                    text: Tr.code-help;
+                    color: Palette.muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                }
+
+                Rectangle {
+                    height: 6px;
+                }
+
+                code-field := Field {
+                    label: Tr.code-label;
+                    placeholder: "D75TGV";
+                    big: true;
+                    upper: true;
+                    text <=> root.code;
+                    enabled: !root.busy;
+                    accepted => { root.check-code(); }
+                }
+
+                Text {
+                    text: root.error-text;
+                    color: Palette.error;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                    min-height: 32px;
+                }
+
+                Rectangle {
+                    vertical-stretch: 1;
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    Button {
+                        text: Tr.close;
+                        clicked => { root.close-clicked(); }
+                    }
+
+                    Button {
+                        text: Tr.continue;
+                        primary: true;
+                        busy: root.busy;
+                        horizontal-stretch: 2;
+                        clicked => { root.check-code(); }
+                    }
+                }
+            }
+        }
+
+        // Paso 2: registro.
+        Rectangle {
+            x: root.step == 1 ? 0 : 60px;
+            opacity: root.step == 1 ? 1 : 0;
+            visible: self.opacity > 0.01;
+            animate x { duration: 240ms; easing: ease-out; }
+            animate opacity { duration: 200ms; }
+
+            VerticalLayout {
+                padding-left: 22px;
+                padding-right: 22px;
+                padding-top: 56px;
+                padding-bottom: 20px;
+                spacing: 11px;
+
+                back-text := Text {
+                    text: Tr.back;
+                    color: back-touch.has-hover ? Palette.gold-bright : Palette.muted;
+                    font-size: 11px;
+
+                    back-touch := TouchArea {
+                        enabled: !root.busy;
+                        mouse-cursor: pointer;
+                        clicked => { root.back(); }
+                    }
+                }
+
+                Text {
+                    text: Tr.register-title;
+                    color: Palette.gold-bright;
+                    font-size: 19px;
+                    font-weight: 600;
+                }
+
+                // Tarjeta de la asignación encontrada.
+                Rectangle {
+                    height: 48px;
+                    border-radius: 4px;
+                    border-width: 1px;
+                    border-color: Palette.frame;
+                    background: Palette.slot-bg;
+
+                    Rectangle {
+                        x: 0;
+                        width: 3px;
+                        border-radius: 1.5px;
+                        background: Palette.gold;
+                    }
+
+                    VerticalLayout {
+                        padding-left: 12px;
+                        padding-right: 10px;
+                        alignment: center;
+                        spacing: 2px;
+
+                        Text {
+                            text: root.assignment-name;
+                            color: Palette.text;
+                            font-size: 13px;
+                            font-weight: 700;
+                            overflow: elide;
+                        }
+
+                        Text {
+                            text: root.assignment-detail;
+                            color: Palette.muted;
+                            font-size: 11px;
+                            overflow: elide;
+                        }
+                    }
+                }
+
+                name-field := Field {
+                    label: Tr.name-label;
+                    placeholder: Tr.name-placeholder;
+                    text <=> root.name;
+                    enabled: !root.busy;
+                    accepted => { root.submit(); }
+                }
+
+                Text {
+                    text: Tr.roles-label;
+                    color: Palette.muted;
+                    font-size: 10px;
+                    font-weight: 700;
+                    letter-spacing: 1.0px;
+                }
+
+                VerticalLayout {
+                    spacing: 6px;
+
+                    for row in 2: HorizontalLayout {
+                        spacing: 6px;
+                        alignment: start;
+
+                        for col in 3: Chip {
+                            text: Tr.roles[row * 3 + col];
+                            accent: root.role-colors[row * 3 + col];
+                            selected: root.role-on(row * 3 + col);
+                            enabled: !root.busy;
+                            clicked => { root.toggle-role(row * 3 + col); }
+                        }
+                    }
+                }
+
+                Text {
+                    text: root.error-text != "" ? root.error-text : (root.info-text != "" ? root.info-text : Tr.register-help);
+                    color: root.error-text != "" ? Palette.error : Palette.muted;
+                    font-size: 12px;
+                    wrap: word-wrap;
+                    min-height: 32px;
+                }
+
+                Rectangle {
+                    vertical-stretch: 1;
+                }
+
+                HorizontalLayout {
+                    spacing: 8px;
+
+                    if root.joined: Button {
+                        text: Tr.leave;
+                        enabled: !root.busy;
+                        clicked => { root.leave(); }
+                    }
+
+                    Button {
+                        text: Tr.close;
+                        clicked => { root.close-clicked(); }
+                    }
+
+                    Button {
+                        text: Tr.join;
+                        primary: true;
+                        busy: root.busy;
+                        horizontal-stretch: 2;
+                        clicked => { root.submit(); }
+                    }
+                }
+            }
+        }
+    }
+}
+
+// Botón flotante con el logo de AlbionCompo, en el borde derecho del juego.
+// Sin asignación abre el ingreso; con asignación despliega la party.
+// Clic derecho: el mismo menú que el ícono de la bandeja.
+export component LauncherWindow inherits Window {
+    in property <bool> active;
+    // Hay una build nueva que todavía no se vio: el borde late.
+    in property <bool> attention;
+    in property <bool> show-badge;
+    in property <color> badge-color: Palette.gold;
+    callback clicked();
+    callback right-clicked();
+
+    title: "AlbionCompo";
+    no-frame: true;
+    always-on-top: true;
+    background: Palette.bg;
+    width: 48px;
+    height: 48px;
+
+    property <bool> shown;
+    init => { shown = true; }
+
+    Rectangle {
+        border-radius: 24px;
+        border-width: 2px;
+        border-color: touch.has-hover || root.active ? Palette.gold-bright : Palette.frame;
+        background: touch.has-hover ? Palette.slot-hover : Palette.bg;
+        animate border-color, background { duration: 150ms; }
+    }
+
+    if root.attention: Rectangle {
+        border-radius: 24px;
+        border-width: 3px;
+        border-color: Palette.gold-bright;
+        opacity: 0.35 + 0.65 * (0.5 + 0.5 * sin((animation-tick() / 1ms) * 0.3deg));
+    }
+
+    Image {
+        x: 4px;
+        y: 4px;
+        width: 40px;
+        height: 40px;
+        source: @image-url("../assets/brand-mark-96.png");
+        image-fit: contain;
+        opacity: root.shown ? (touch.has-hover || root.active ? 1.0 : 0.85) : 0;
+        animate opacity { duration: 220ms; easing: ease-out; }
+    }
+
+    // Estado: dorado esperando build, color del rol con build, ámbar con problemas.
+    if root.show-badge: Rectangle {
+        x: 33px;
+        y: 5px;
+        width: 11px;
+        height: 11px;
+        border-radius: 5.5px;
+        border-width: 2px;
+        border-color: Palette.bg;
+        background: root.badge-color;
+    }
+
+    touch := TouchArea {
+        mouse-cursor: pointer;
+        clicked => { root.clicked(); }
+        pointer-event(e) => {
+            if e.button == PointerEventButton.right && e.kind == PointerEventKind.down {
+                root.right-clicked();
+            }
+        }
+    }
+}
+
+
+// Entrada de una línea, chica, para el buscador de compos.
+component MiniInput inherits Rectangle {
+    in property <string> placeholder;
+    in-out property <string> text;
+    in property <bool> upper;
+    callback accepted();
+
+    height: 28px;
+    border-radius: 4px;
+    border-width: 1px;
+    border-color: input.has-focus ? Palette.gold : Palette.border;
+    background: Palette.slot-bg;
+    forward-focus: input;
+    animate border-color { duration: 160ms; }
+
+    if root.text == "" && !input.has-focus: Text {
+        x: 8px;
+        width: parent.width - 16px;
+        height: parent.height;
+        text: root.placeholder;
+        color: #6d5f4b;
+        font-size: 12px;
+        vertical-alignment: center;
+        overflow: elide;
+    }
+
+    input := TextInput {
+        x: 8px;
+        width: parent.width - 16px;
+        height: parent.height;
+        text <=> root.text;
+        color: Palette.text;
+        selection-background-color: #6b5230;
+        font-size: 12px;
+        vertical-alignment: center;
+        single-line: true;
+        accepted => { root.accepted(); }
+    }
+
+    public function focus-input() {
+        input.focus();
+    }
+}
+
+// Buscador de compos: lista pública con búsqueda, o una compo por su código.
+// Chico y oculto hasta que se abre; una vez abierto queda fijo hasta cerrarlo.
+export component CompsWindow inherits Window {
+    // Textos (los llena Rust según el idioma).
+    in property <string> heading;
+    in property <string> tab-public;
+    in property <string> tab-code;
+    in property <string> search-placeholder;
+    in property <string> code-placeholder;
+    in property <string> open-text;
+    in property <string> more-text;
+    in property <string> view-text;
+    in property <string> stop-text;
+    in property <string> private-text;
+    // Estado.
+    // 0 = lista, 1 = detalle de una compo.
+    in property <int> mode;
+    in-out property <int> tab;
+    in-out property <string> query;
+    in-out property <string> code;
+    in property <string> status-text;
+    in property <bool> status-error;
+    in property <bool> loading;
+    in property <bool> has-more;
+    in property <[CompRow]> items;
+    in property <string> detail-name;
+    in property <bool> detail-private;
+    in property <[BuildRow]> builds;
+    in property <bool> can-view;
+    in property <bool> previewing;
+    callback search();
+    callback more();
+    callback open-item(int);
+    callback open-code();
+    callback back();
+    callback pick-build(int);
+    callback view-in-strip();
+    callback stop-view();
+    callback close-clicked();
+
+    title: "AlbionCompo";
+    no-frame: true;
+    always-on-top: true;
+    default-font-family: "Segoe UI";
+    background: Palette.bg;
+    width: 300px;
+    height: 400px;
+
+    Rectangle {
+        border-width: 1px;
+        border-radius: 7px;
+        border-color: Palette.frame;
+    }
+
+    VerticalLayout {
+        padding: 10px;
+        spacing: 6px;
+
+        HorizontalLayout {
+            spacing: 6px;
+            height: 18px;
+
+            if root.mode == 1: Rectangle {
+                width: 18px;
+                Text {
+                    text: "←";
+                    color: back-touch.has-hover ? Palette.gold-bright : Palette.gold;
+                    font-size: 14px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                back-touch := TouchArea { clicked => { root.back(); } }
+            }
+
+            Text {
+                text: root.mode == 1 ? root.detail-name : root.heading;
+                color: Palette.gold;
+                font-size: 11px;
+                font-weight: 700;
+                letter-spacing: root.mode == 1 ? 0.4px : 1.4px;
+                vertical-alignment: center;
+                overflow: elide;
+                horizontal-stretch: 1;
+            }
+
+            if root.mode == 1 && root.detail-private: Text {
+                text: root.private-text;
+                color: Palette.muted;
+                font-size: 10px;
+                vertical-alignment: center;
+            }
+
+            Rectangle {
+                width: 18px;
+                Text {
+                    text: "✕";
+                    color: x-touch.has-hover ? Palette.text : Palette.muted;
+                    font-size: 11px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                x-touch := TouchArea { clicked => { root.close-clicked(); } }
+            }
+        }
+
+        if root.mode == 0: HorizontalLayout {
+            spacing: 4px;
+            height: 24px;
+
+            for label[i] in [root.tab-public, root.tab-code]: Rectangle {
+                border-radius: 4px;
+                background: root.tab == i ? #2a1f16 : transparent;
+                border-width: 1px;
+                border-color: root.tab == i ? Palette.border : transparent;
+                animate background { duration: 160ms; }
+
+                Text {
+                    text: label;
+                    color: root.tab == i ? Palette.gold-bright : Palette.muted;
+                    font-size: 11px;
+                    font-weight: 700;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                TouchArea { clicked => { root.tab = i; } }
+            }
+        }
+
+        if root.mode == 0 && root.tab == 0: MiniInput {
+            placeholder: root.search-placeholder;
+            text <=> root.query;
+            accepted => { root.search(); }
+        }
+
+        if root.mode == 0 && root.tab == 1: HorizontalLayout {
+            spacing: 6px;
+            height: 28px;
+
+            MiniInput {
+                placeholder: root.code-placeholder;
+                text <=> root.code;
+                accepted => { root.open-code(); }
+            }
+
+            Rectangle {
+                width: 64px;
+                border-radius: 4px;
+                background: code-touch.has-hover ? #8a6a38 : #6b5230;
+                animate background { duration: 120ms; }
+
+                Text {
+                    text: root.open-text;
+                    color: Palette.text;
+                    font-size: 10px;
+                    font-weight: 700;
+                    letter-spacing: 1px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+
+                code-touch := TouchArea { clicked => { root.open-code(); } }
+            }
+        }
+
+        if root.status-text != "": Text {
+            text: root.status-text;
+            color: root.status-error ? Palette.error : Palette.muted;
+            font-size: 11px;
+            wrap: word-wrap;
+        }
+
+        if root.mode == 0 && root.tab == 0: Flickable {
+            content-height: root.items.length * 30px + (root.has-more ? 28px : 0px);
+
+            for item[i] in root.items: Rectangle {
+                y: i * 30px;
+                height: 30px;
+                border-radius: 3px;
+                background: row-touch.has-hover ? Palette.slot-hover : transparent;
+                animate background { duration: 100ms; }
+
+                HorizontalLayout {
+                    padding-left: 6px;
+                    padding-right: 6px;
+                    spacing: 6px;
+
+                    Text {
+                        text: item.name;
+                        color: Palette.text;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+
+                    Text {
+                        text: item.meta;
+                        color: Palette.muted;
+                        font-size: 10px;
+                        vertical-alignment: center;
+                    }
+                }
+
+                row-touch := TouchArea { clicked => { root.open-item(i); } }
+            }
+
+            if root.has-more: Rectangle {
+                y: root.items.length * 30px;
+                height: 28px;
+                Text {
+                    text: root.more-text;
+                    color: more-touch.has-hover ? Palette.gold-bright : Palette.gold;
+                    font-size: 11px;
+                    horizontal-alignment: center;
+                    vertical-alignment: center;
+                }
+                more-touch := TouchArea { clicked => { root.more(); } }
+            }
+        }
+
+        if root.mode == 1: Flickable {
+            content-height: root.builds.length * 30px;
+
+            for build[i] in root.builds: Rectangle {
+                y: i * 30px;
+                height: 30px;
+                border-radius: 3px;
+                background: build.selected ? #2a1f16 : (build-touch.has-hover ? Palette.slot-hover : transparent);
+                border-width: build.selected ? 1px : 0px;
+                border-color: Palette.border;
+                animate background { duration: 100ms; }
+
+                HorizontalLayout {
+                    padding-left: 5px;
+                    padding-right: 6px;
+                    spacing: 7px;
+
+                    Rectangle {
+                        width: 22px;
+                        height: 22px;
+                        y: 4px;
+                        border-radius: 3px;
+                        border-width: 1px;
+                        border-color: Palette.border;
+                        background: Palette.slot-bg;
+
+                        if build.has-image: Image {
+                            x: 1px;
+                            y: 1px;
+                            width: 20px;
+                            height: 20px;
+                            source: build.image;
+                            image-fit: contain;
+                        }
+
+                        if !build.has-image: Rectangle {
+                            width: 6px;
+                            height: 6px;
+                            border-radius: 3px;
+                            background: build.role-color;
+                        }
+                    }
+
+                    Text {
+                        text: build.name;
+                        color: build.selected ? Palette.gold-bright : Palette.text;
+                        font-size: 12px;
+                        vertical-alignment: center;
+                        overflow: elide;
+                        horizontal-stretch: 1;
+                    }
+
+                    Text {
+                        text: build.role;
+                        color: build.role-color;
+                        font-size: 10px;
+                        font-weight: 700;
+                        letter-spacing: 0.8px;
+                        vertical-alignment: center;
+                    }
+                }
+
+                build-touch := TouchArea { clicked => { root.pick-build(i); } }
+            }
+        }
+
+        if root.mode == 1 && (root.can-view || root.previewing): Rectangle {
+            height: 28px;
+            border-radius: 4px;
+            background: view-touch.has-hover ? #8a6a38 : #6b5230;
+            animate background { duration: 120ms; }
+
+            Text {
+                text: root.previewing && !root.can-view ? root.stop-text : root.view-text;
+                color: Palette.text;
+                font-size: 11px;
+                font-weight: 700;
+                horizontal-alignment: center;
+                vertical-alignment: center;
+            }
+
+            view-touch := TouchArea {
+                clicked => {
+                    if root.previewing && !root.can-view {
+                        root.stop-view();
+                    } else {
+                        root.view-in-strip();
+                    }
+                }
+            }
+        }
+    }
+}

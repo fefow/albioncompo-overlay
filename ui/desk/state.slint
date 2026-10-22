@@ -1,0 +1,140 @@
+// Estado y textos de la app de escritorio. Cada sección tiene su propio global
+// (lo que muestra y lo que pide), así Rust la maneja desde su módulo
+// (src/desk/<sección>.rs) y sumar una sección no toca las demás.
+
+import { Slot } from "../theme.slint";
+
+export struct NavItem {
+    label: string,
+    icon: string,
+}
+
+export struct HotkeyRow {
+    keys: string,
+    label: string,
+}
+
+export struct DeskComp {
+    name: string,
+    activity: string,
+    builds: string,
+}
+
+export struct DeskBuild {
+    name: string,
+    role: string,
+    role-color: color,
+    slots: [Slot],
+    // Nombre de cada casillero, para mostrarlo al pasar el mouse.
+    names: [string],
+    in-overlay: bool,
+}
+
+// Textos fijos de la app; Rust los llena según el idioma (src/desk/texts.rs).
+export global DeskTr {
+    in property <string> home-title;
+    in property <string> home-subtitle;
+    in property <string> game-title;
+    in property <string> game-running;
+    in property <string> game-closed;
+    in property <string> game-help-running;
+    in property <string> game-help-closed;
+    in property <string> assign-title;
+    in property <string> assign-none;
+    in property <string> assign-enter;
+    in property <string> assign-change;
+    in property <string> quick-title;
+    in property <string> quick-compos;
+    in property <string> quick-site;
+    in property <string> hotkeys-title;
+    in property <string> tab-public;
+    in property <string> tab-code;
+    in property <string> search-placeholder;
+    in property <string> search;
+    in property <string> code-placeholder;
+    in property <string> open;
+    in property <string> more;
+    in property <string> back;
+    in property <string> private;
+    in property <string> view-overlay;
+    in property <string> in-overlay;
+    in property <string> open-web;
+    in property <string> overlay-hint;
+    in property <string> settings-lang;
+    in property <string> settings-app;
+    in property <string> opt-start-window;
+    in property <string> opt-start-window-help;
+    in property <string> opt-hide-on-game;
+    in property <string> opt-hide-on-game-help;
+    in property <string> opt-close-tray;
+    in property <string> opt-close-tray-help;
+    in property <string> settings-overlay;
+    in property <string> opt-pin-strip;
+    in property <string> opt-pin-party;
+    in property <string> settings-about;
+    in property <string> about-text;
+}
+
+// Marco de la ventana: navegación, estado del juego y botones de la ventana.
+export global DeskShell {
+    in property <[NavItem]> nav;
+    in-out property <int> page;
+    in property <bool> game-running;
+    in property <bool> maximized;
+    in property <string> version;
+    callback navigate(int);
+    callback minimize();
+    callback toggle-maximize();
+    callback close();
+    callback drag();
+    // 0..7: N, S, E, O, NE, NO, SE, SO.
+    callback resize(int);
+}
+
+export global HomePage {
+    in property <bool> has-assignment;
+    in property <string> assign-name;
+    in property <string> assign-detail;
+    in property <string> assign-status;
+    in property <color> assign-status-color;
+    in property <[HotkeyRow]> hotkeys;
+    callback open-setup();
+    callback open-site();
+}
+
+export global CompsPage {
+    in-out property <int> tab;
+    in-out property <string> query;
+    in-out property <string> code;
+    // 0: lista, 1: una compo.
+    in property <int> mode;
+    in property <[DeskComp]> items;
+    in property <bool> has-more;
+    in property <bool> loading;
+    in property <string> status-text;
+    in property <bool> status-error;
+    in property <string> detail-name;
+    in property <string> detail-meta;
+    in property <bool> detail-private;
+    in property <bool> can-open-web;
+    in property <[DeskBuild]> builds;
+    callback search();
+    callback more();
+    callback open-item(int);
+    callback open-code();
+    callback back();
+    callback toggle-overlay(int);
+    callback open-web();
+}
+
+export global SettingsPage {
+    in property <int> lang-index;
+    in property <bool> start-window;
+    in property <bool> hide-on-game;
+    in property <bool> close-to-tray;
+    in property <bool> pin-strip;
+    in property <bool> pin-party;
+    callback lang-picked(int);
+    // "start-window", "hide-on-game", "close-to-tray", "pin-strip", "pin-party".
+    callback toggled(string);
+}

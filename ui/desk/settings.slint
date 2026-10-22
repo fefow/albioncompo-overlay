@@ -1,0 +1,114 @@
+// Ajustes: idioma, cómo se comporta la app con el juego y el overlay.
+
+import { Palette } from "../theme.slint";
+import { Desk, Card, SectionTitle, OptionRow, Tabs } from "widgets.slint";
+import { DeskTr, DeskShell, SettingsPage } from "state.slint";
+
+export component SettingsView inherits Rectangle {
+    Flickable {
+        width: parent.width;
+        height: parent.height;
+        content-height: content.preferred-height + 56px;
+
+        content := VerticalLayout {
+            x: 28px;
+            y: 24px;
+            width: min(parent.width - 56px, 760px);
+            height: self.preferred-height;
+            spacing: 18px;
+
+            Card {
+                VerticalLayout {
+                    padding: 20px;
+                    spacing: 12px;
+                    alignment: start;
+
+                    SectionTitle { text: DeskTr.settings-lang; }
+
+                    HorizontalLayout {
+                        alignment: start;
+                        Tabs {
+                            labels: ["Español", "English", "Português"];
+                            current: SettingsPage.lang-index;
+                            tab-width: 110px;
+                            changed(i) => { SettingsPage.lang-picked(i); }
+                        }
+                    }
+                }
+            }
+
+            Card {
+                VerticalLayout {
+                    padding: 20px;
+                    spacing: 4px;
+
+                    SectionTitle { text: DeskTr.settings-app; }
+
+                    OptionRow {
+                        label: DeskTr.opt-start-window;
+                        help: DeskTr.opt-start-window-help;
+                        on: SettingsPage.start-window;
+                        toggled => { SettingsPage.toggled("start-window"); }
+                    }
+
+                    OptionRow {
+                        label: DeskTr.opt-hide-on-game;
+                        help: DeskTr.opt-hide-on-game-help;
+                        on: SettingsPage.hide-on-game;
+                        toggled => { SettingsPage.toggled("hide-on-game"); }
+                    }
+
+                    OptionRow {
+                        label: DeskTr.opt-close-tray;
+                        help: DeskTr.opt-close-tray-help;
+                        on: SettingsPage.close-to-tray;
+                        toggled => { SettingsPage.toggled("close-to-tray"); }
+                    }
+                }
+            }
+
+            Card {
+                VerticalLayout {
+                    padding: 20px;
+                    spacing: 4px;
+
+                    SectionTitle { text: DeskTr.settings-overlay; }
+
+                    OptionRow {
+                        label: DeskTr.opt-pin-strip;
+                        on: SettingsPage.pin-strip;
+                        toggled => { SettingsPage.toggled("pin-strip"); }
+                    }
+
+                    OptionRow {
+                        label: DeskTr.opt-pin-party;
+                        on: SettingsPage.pin-party;
+                        toggled => { SettingsPage.toggled("pin-party"); }
+                    }
+                }
+            }
+
+            Card {
+                VerticalLayout {
+                    padding: 20px;
+                    spacing: 8px;
+
+                    SectionTitle { text: DeskTr.settings-about; }
+
+                    Text {
+                        text: DeskTr.about-text;
+                        color: Palette.muted;
+                        font-size: 12px;
+                        wrap: word-wrap;
+                    }
+
+                    Text {
+                        text: "AlbionCompo " + DeskShell.version;
+                        color: Desk.faint;
+                        font-size: 11px;
+                    }
+                }
+            }
+        }
+    }
+}
